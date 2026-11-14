@@ -8,18 +8,85 @@ column generation example (using Gurobi) to illustrate how to use the library.
 
 ---
 
+## Installing the Python package
+
+```sh
+pip install rcspp
+```
+
+This installs a pre-built wheel, so no compiler is needed, for CPython 3.11 to 3.14
+(and the free-threaded 3.14t) on:
+
+- Linux x86_64 and aarch64 (glibc >= 2.28: `manylinux_2_28`)
+- macOS 11 or later, arm64 and x86_64
+- Windows x86_64
+
+On the free-threaded build the extension does not declare itself safe without the GIL,
+so the interpreter turns the GIL back on when `rcspp` is imported.
+
+On any other platform `pip` builds from the source distribution, which needs the
+prerequisites below (CMake and a C++23 compiler).
+
+A first model:
+
+```python
+from rcspp.graph import ResourceGraph
+from rcspp.resource import (
+    AdditionExtensionFunction,
+    MinMaxFeasibilityFunction,
+    ValueCostFunction,
+    ValueDominanceFunction,
+)
+
+rg = ResourceGraph()
+
+# One real resource: distance, must stay <= 50
+rg.add_real_resource(
+    AdditionExtensionFunction(),
+    MinMaxFeasibilityFunction(0.0, 50.0),
+    ValueCostFunction(),
+    ValueDominanceFunction(),
+)
+
+rg.add_node(0, source=True)
+rg.add_node(1)
+rg.add_node(2)
+rg.add_node(3, sink=True)
+
+# add_arc(resource_consumption_tuple, origin, dest, cost)
+rg.add_arc((10.0,), 0, 1, cost=10.0)
+rg.add_arc((15.0,), 1, 3, cost=15.0)
+rg.add_arc((20.0,), 0, 2, cost=20.0)
+rg.add_arc((10.0,), 2, 3, cost=10.0)
+
+result = rg.solve()
+print(result.solutions[0].cost)           # 25.0
+print(result.solutions[0].path_node_ids)  # [0, 1, 3]
+```
+
+The rest of this file is about building from source.
+
+---
+
 ## Prerequisites
 
 ### RCSPP library
 
 - **CMake >= 3.26**
-- **C++ compiler** with C++23 support (e.g., Clang 21.1.0, or a compatible compiler)
+- **C++ compiler** with C++23 support (e.g., Clang 21.1.0, or a compatible compiler;
+  the Linux wheels are built with GCC 14)
 
 ### Python bindings
 
 - **Python >= 3.11** (for Python bindings and pre-commit hooks)
 - **Git** (to have pybind11 as a submodule)
 - **[pybind11]** (as a submodule – auto-included when you follow instructions below)
+
+To build and install the Python package from a clone, with the same prerequisites:
+
+```sh
+pip install .
+```
 
 ### VRP
 

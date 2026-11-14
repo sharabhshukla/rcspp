@@ -1,0 +1,132 @@
+name: Wheels
+
+# Builds every wheel and the sdist, and tests each wheel with the quickstart
+# (scripts/wheel_smoke_test.py). Which wheels exist is decided in pyproject.toml
+# ([tool.cibuildwheel]); this file only says which runner builds which platform.
+#
+# Called by publish-pypi.yml and ci-full.yml. Also runs on its own when a pull request changes
+# the packaging, so a wheel that no longer builds shows before a release does.
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - pyproject.toml
+      - CMakeLists.txt
+      - python/CMakeLists.txt
+      - cpp/rcspp/CMakeLists.txt
+      - scripts/wheel_smoke_test.py
+      - .github/workflows/wheels.yml
+
+# A newer push to the same pull request cancels the run in progress. github.workflow is the
+# calling workflow's name when this one is called, so a call never shares a group with a run of
+# this workflow on the same pull request.
+concurrency:
+  group: ${{ github.workflow }}-wheels-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build_wheels:
+    name: Wheels / ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      # One native runner per platform: nothing is emulated or cross-compiled, so each wheel is
+      # also tested where it was built.
+      matrix:
+        include:
+          - {os: ubuntu-latest, platform: linux-x86_64}
+          - {os: ubuntu-24.04-arm, platform: linux-aarch64}
+          - {os: macos-latest, platform: macos-arm64}
+          - {os: macos-26-intel, platform: macos-x86_64}
+          - {os: windows-latest, platform: windows-amd64}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build and test wheels
+        uses: pypa/cibuildwheel@v4.3.5
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.platform }}
+          path: ./wheelhouse/*.whl
+
+  build_sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install --upgrade build
+
+      - name: Build sdist
+        run: python -m build --sdist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  # What the wheels are for: a machine with no compiler and no source tree. The image has
+  # neither, and pip is told to refuse the sdist, so a missing wheel fails here instead of
+  # starting a build.
+  install_without_compiler:
+    name: Install without a compiler / py${{ matrix.python }}
+    needs: build_wheels
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.14']
+    container: python:${{ matrix.python }}-slim
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/wheel_smoke_test.py
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-linux-x86_64
+          path: wheelhouse
+
+      - name: Check the image has no compiler
+        run: |
+          if command -v c++ g++ gcc clang cc cmake; then
+            echo "The image has a compiler or CMake; this job would not show a missing wheel."
+            exit 1
+          fi
+
+      - name: Install the wheel
+        run: pip install --only-binary rcspp --find-links wheelhouse rcspp
+
+      - name: Wheel ships its type information
+        run: |
+          python - <<'EOF'
+          import pathlib, rcspp
+          package = pathlib.Path(rcspp.__file__).parent
+          assert (package / "py.typed").is_file(), "py.typed is missing from the wheel"
+          stubs = sorted(p.name for p in (package / "_core").glob("*.pyi"))
+          print("stubs:", stubs)
+          assert "__init__.pyi" in stubs and "graph.pyi" in stubs, "the _core stubs are missing"
+          EOF
+
+      - name: Quickstart
+        run: python scripts/wheel_smoke_test.py
