@@ -10,7 +10,10 @@ title: Installation
 pip install rcspp
 ```
 
-This installs pre-built wheels for Linux, macOS, and Windows (Python 3.11+).
+This installs a pre-built wheel, so no compiler is needed, for CPython 3.11 to 3.14 (and the
+free-threaded 3.14t) on Linux x86_64 and aarch64 (glibc ≥ 2.28), macOS 11 or later (arm64 and
+x86_64) and Windows x86_64. On any other platform `pip` builds from the source distribution,
+which needs the prerequisites below.
 
 ## C++ library
 
@@ -31,9 +34,14 @@ cmake --build build
 To also build the Python bindings:
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DRCSPP_BUILD_PYTHON=ON
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DUSE_PYTHON=ON
 cmake --build build
-pip install python/
+```
+
+Or build and install the Python package in one step:
+
+```bash
+pip install .
 ```
 
 ### Include in your CMake project

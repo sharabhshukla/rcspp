@@ -22,6 +22,8 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Programming Language :: C++",
   "Operating System :: Microsoft :: Windows",
   "Operating System :: MacOS",
@@ -30,6 +32,8 @@ classifiers = [
 ]
 dependencies = [
   "networkx>=3,<4",
+  # update_reduced_costs, arc rows and rcspp.pricing_pool import it.
+  "numpy>=1.24",
 ]
 
 [project.urls]
@@ -47,14 +51,34 @@ cmake.args = [
 ]
 
 [tool.cibuildwheel]
-build = ["cp311-*", "cp312-*"]
-skip = ["pp*", "*-musllinux_*", "*-win32", "*_i686"]
+# The one place that says which wheels exist; the workflows set no CIBW_* selection of their own.
+# cp314t is the free-threaded build. cibuildwheel >= 3.1 builds it without an `enable` entry; the
+# extension does not declare itself safe without the GIL, so the interpreter turns the GIL back on
+# when rcspp is imported there.
+build = ["cp311-*", "cp312-*", "cp313-*", "cp314-*", "cp314t-*"]
+skip = ["*-musllinux_*", "*-win32", "*_i686"]
 build-verbosity = 1
-test-command = "python -c \"import rcspp; from rcspp.graph import ResourceGraph\""
+# The quickstart of the docs, with its printed values asserted.
+test-command = "python {project}/scripts/wheel_smoke_test.py"
 
 [tool.cibuildwheel.linux]
-archs = ["x86_64"]
+# One wheel set per runner architecture: x86_64 on ubuntu-latest, aarch64 on ubuntu-24.04-arm.
+archs = ["auto64"]
+# manylinux_2_28 ships GCC 14 (gcc-toolset-14), which compiles the C++23 the library uses.
+# before-all prints it, so a wheel log says which compiler built it.
 manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+before-all = "c++ --version && cmake --version"
+
+[tool.cibuildwheel.macos]
+# arm64 on macos-latest, x86_64 on an Intel runner; no universal2.
+archs = ["native"]
+before-all = "c++ --version && cmake --version"
+
+[tool.cibuildwheel.macos.environment]
+# 11.0 is the oldest macOS that runs on arm64. The library uses no libc++ feature that needs a
+# newer system library; the compiler rejects the build if that changes.
+MACOSX_DEPLOYMENT_TARGET = "11.0"
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]

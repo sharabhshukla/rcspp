@@ -218,9 +218,17 @@ New features are summarised, with a pointer to where they are documented.
   `DEFAULT_PRICE_THRESHOLD`. The docs no longer import from the private `rcspp._core`.
 - **`AlgorithmParams.prune_by_upper_bound` in Python.** The C++ field was not bound, so Python
   users could not turn pruning by the upper bound on.
+- **Wheels for CPython 3.13, 3.14 and free-threaded 3.14t, and for Linux aarch64 and macOS
+  x86_64**, beside the 3.11 and 3.12 wheels for Linux x86_64, macOS arm64 and Windows. Each wheel
+  is tested with the quickstart (`scripts/wheel_smoke_test.py`), and the Linux wheel is installed
+  on an image with no compiler. Pushing a tag `v<version>` publishes to PyPI. See
+  `docs/installation.md`.
 
 ### Fixed
 
+- **`pip install rcspp` installs numpy.** `update_reduced_costs`, arc rows and
+  `rcspp.pricing_pool` import it, but the package did not declare it, so on a fresh environment
+  the first column generation step raised `ModuleNotFoundError`.
 - **A truncated run that uses up its phases reports `MaxPhases`, not `Complete`**, in C++ and in
   Python. With `release_after_solve`, the default, the labels a phase held back (truncated
   labelling, memory pressure) were not counted when the status was read, so such a run reported
