@@ -8,24 +8,28 @@ The package locates the extension in common build directories automatically
 when it is imported from a source tree.
 """
 
-# ── Build-directory discovery ─────────────────────────────────────────────────
-# When the package is imported from the source tree (e.g. via sys.path pointing
-# at python/src/) the compiled _core extension is absent.  Pre-load it
-# into sys.modules so the subsequent relative import (from . import _core) works.
+# ── Finding the compiled extension ────────────────────────────────────────────
+# An installed package, a wheel or an editable install (`pip install -e .`), imports _core like
+# any other submodule, and nothing below runs. Only a package imported straight from the source
+# tree with no install (sys.path pointing at python/src/, the extension in a CMake build
+# directory) needs the search: it pre-loads _core into sys.modules so the relative imports work.
 
-import importlib.util as _imputil
-import os as _os
-import sys as _sys
-import sysconfig as _sysconfig
+try:
+    from . import _core  # noqa: F401
+except ImportError:
+    import importlib.util as _imputil
+    import os as _os
+    import sys as _sys
+    import sysconfig as _sysconfig
 
-_pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
-# EXT_SUFFIX is version+platform specific: e.g. ".cp311-win_amd64.pyd", ".cpython-311-linux-gnu.so"
-_ext_suffix = _sysconfig.get_config_var("EXT_SUFFIX") or ".so"
+    _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+    # EXT_SUFFIX is version+platform specific: e.g. ".cp311-win_amd64.pyd",
+    # ".cpython-311-linux-gnu.so"
+    _ext_suffix = _sysconfig.get_config_var("EXT_SUFFIX") or ".so"
 
-if not _os.path.exists(_os.path.join(_pkg_dir, f"_core{_ext_suffix}")):
     _root = _pkg_dir
     _found = False
-    for _ in range(6):
+    for _level in range(6):
         _root = _os.path.dirname(_root)
         for _build in ("cmake-build-release", "cmake-build-debug", "build", "out"):
             _candidate = _os.path.join(_root, _build, "python", "rcspp")
@@ -43,6 +47,8 @@ if not _os.path.exists(_os.path.join(_pkg_dir, f"_core{_ext_suffix}")):
                         pass
                     del _ctypes
                 _spec = _imputil.spec_from_file_location("rcspp._core", _core_path)
+                if _spec is None or _spec.loader is None:  # pragma: no cover
+                    continue
                 _mod = _imputil.module_from_spec(_spec)
                 _sys.modules["rcspp._core"] = _mod
                 _spec.loader.exec_module(_mod)
@@ -52,7 +58,7 @@ if not _os.path.exists(_os.path.join(_pkg_dir, f"_core{_ext_suffix}")):
         if _found:
             break
 
-del _imputil, _os, _sys, _sysconfig, _pkg_dir, _ext_suffix
+    del _imputil, _os, _sys, _sysconfig, _pkg_dir, _ext_suffix
 
 from . import graph, logger, presets, resource  # noqa: E402
 from ._core import available_memory_bytes, process_memory_bytes  # noqa: E402

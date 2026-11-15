@@ -74,7 +74,7 @@ class FilteredSolutionPool:
     ) -> list[int]: ...
     def add_filter(
         self,
-        filter: collections.abc.Callable | None = None,
+        filter: collections.abc.Callable[..., typing.Any] | None = None,
         compulsory_rows: collections.abc.Sequence[typing.SupportsInt | typing.SupportsIndex] = [],
         forbidden_rows: collections.abc.Sequence[typing.SupportsInt | typing.SupportsIndex] = [],
         compulsory_arc_ids: collections.abc.Sequence[
@@ -94,7 +94,7 @@ class FilteredSolutionPool:
     def get_entry(
         self, column_id: typing.SupportsInt | typing.SupportsIndex
     ) -> tuple[int, rcspp._core.graph.Solution, ColumnActivity] | None: ...
-    def global_remove_if(self, pred: collections.abc.Callable) -> list[int]: ...
+    def global_remove_if(self, pred: collections.abc.Callable[..., typing.Any]) -> list[int]: ...
     def global_remove_if_arc_present(
         self, arc_id: typing.SupportsInt | typing.SupportsIndex
     ) -> list[int]: ...
@@ -105,7 +105,7 @@ class FilteredSolutionPool:
     ) -> list[int]: ...
     def new_filter(
         self,
-        filter: collections.abc.Callable | None = None,
+        filter: collections.abc.Callable[..., typing.Any] | None = None,
         compulsory_rows: collections.abc.Sequence[typing.SupportsInt | typing.SupportsIndex] = [],
         forbidden_rows: collections.abc.Sequence[typing.SupportsInt | typing.SupportsIndex] = [],
         compulsory_arc_ids: collections.abc.Sequence[
@@ -128,7 +128,7 @@ class FilteredSolutionPool:
         threshold: typing.SupportsFloat | typing.SupportsIndex = -1e-09,
     ) -> tuple[numpy.typing.NDArray[numpy.uint64], numpy.typing.NDArray[numpy.float64]]: ...
     def pricing_count(self) -> int: ...
-    def remove_if(self, pred: collections.abc.Callable) -> list[int]: ...
+    def remove_if(self, pred: collections.abc.Callable[..., typing.Any]) -> list[int]: ...
     def remove_if_arc_present(
         self, arc_id: typing.SupportsInt | typing.SupportsIndex
     ) -> list[int]: ...
@@ -164,7 +164,7 @@ class SolutionPool:
     ]: ...
     def new_filter(
         self,
-        filter: collections.abc.Callable | None = None,
+        filter: collections.abc.Callable[..., typing.Any] | None = None,
         compulsory_rows: collections.abc.Sequence[typing.SupportsInt | typing.SupportsIndex] = [],
         forbidden_rows: collections.abc.Sequence[typing.SupportsInt | typing.SupportsIndex] = [],
         compulsory_arc_ids: collections.abc.Sequence[

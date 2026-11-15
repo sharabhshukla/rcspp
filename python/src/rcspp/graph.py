@@ -9,16 +9,169 @@ construction, resource registration, buffered node/arc insertion, and
 NetworkX integration.
 """
 
+from __future__ import annotations
+
 import math
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeAlias
 
 import networkx as nx
 
 from . import _core as _ext
-from ._resource_types import ALL, canonical
-from .resource import _GenericFunctionDescriptor
 
-# String → Algorithm enum mapping (populated lazily after _ext is imported)
-_ALGORITHM_MAP = {
+# The public names of the C++ graph module. They are listed by name, not copied in a loop, so
+# that an IDE or a type checker sees them; tests/python/test_static_api.py fails when the
+# extension gains a public name that is missing here.
+from ._core.graph import (
+    Algorithm,
+    AlgorithmParams,
+    AlgorithmStatus,
+    Arc,
+    BidirectionalStats,
+)
+from ._core.graph import BucketAlgorithmParams as _CppBucketAlgorithmParams
+from ._core.graph import (
+    Column,
+    Graph,
+    Node,
+    Row,
+    SearchDirection,
+    Solution,
+    SolveResult,
+    check_interrupted,
+)
+from ._core.resource import (
+    CostFunction_bitset,
+    CostFunction_int,
+    CostFunction_int_set,
+    CostFunction_real,
+    CostFunction_real_set,
+    DominanceFunction_bitset,
+    DominanceFunction_int,
+    DominanceFunction_int_set,
+    DominanceFunction_real,
+    DominanceFunction_real_set,
+    ExtensionFunction_bitset,
+    ExtensionFunction_int,
+    ExtensionFunction_int_set,
+    ExtensionFunction_real,
+    ExtensionFunction_real_set,
+    FeasibilityFunction_bitset,
+    FeasibilityFunction_int,
+    FeasibilityFunction_int_set,
+    FeasibilityFunction_real,
+    FeasibilityFunction_real_set,
+)
+from ._resource_types import ALL, canonical
+from .resource import (
+    AnyResourceFunction,
+    CostFunction,
+    DominanceFunction,
+    ExtensionFunction,
+    FeasibilityFunction,
+    _GenericFunctionDescriptor,
+)
+
+if TYPE_CHECKING:
+    import numpy as np
+    import numpy.typing as npt
+
+__all__ = [
+    "ALGORITHMS",
+    "Algorithm",
+    "AlgorithmName",
+    "AlgorithmParams",
+    "AlgorithmStatus",
+    "AnyArc",
+    "AnyNode",
+    "Arc",
+    "BidirectionalStats",
+    "BucketAlgorithmParams",
+    "Column",
+    "DirectionName",
+    "Graph",
+    "Node",
+    "ResourceConsumption",
+    "ResourceGraph",
+    "ResourceValue",
+    "Row",
+    "RowLike",
+    "SearchDirection",
+    "Solution",
+    "SolveResult",
+    "check_interrupted",
+]
+
+# ── Argument types ────────────────────────────────────────────────────────────
+
+#: An algorithm, by name. ``solve`` also takes the :class:`Algorithm` itself.
+AlgorithmName: TypeAlias = Literal[
+    "simple", "pushing", "pulling", "greedy", "tabu", "astar", "bidirectional"
+]
+
+#: A search direction, by name. ``solve`` also takes the :class:`SearchDirection` itself.
+DirectionName: TypeAlias = Literal["forward", "backward", "bidirectional"]
+
+#: A row of an arc: a :class:`Row`, or its ``(index, coefficient)``.
+RowLike: TypeAlias = Row | tuple[int, float]
+
+#: What one resource consumes on an arc: a number for ``real`` and ``int`` resources, a set for
+#: the container ones, or a tuple that initialises a resource of several components.
+ResourceValue: TypeAlias = float | set[int] | set[float] | tuple[Any, ...]
+
+#: What an arc consumes: one :data:`ResourceValue` per registered resource, in the order of the
+#: ``add_<type>_resource`` calls. A graph with a single resource also takes the bare value.
+ResourceConsumption: TypeAlias = tuple[ResourceValue, ...] | float | set[int] | set[float]
+
+
+class AnyNode(Protocol):
+    """A node of a :class:`ResourceGraph`, whichever resource types the graph holds.
+
+    The C++ node class depends on the graph's resource types (:class:`Node` with a single
+    ``real`` resource). All of them have these members.
+    """
+
+    @property
+    def id(self) -> int:
+        """The node's id."""
+
+    @property
+    def source(self) -> bool:
+        """Whether a path may start here."""
+
+    @property
+    def sink(self) -> bool:
+        """Whether a path may end here."""
+
+
+class AnyArc(Protocol):
+    """An arc of a :class:`ResourceGraph`, whichever resource types the graph holds.
+
+    The C++ arc class depends on the graph's resource types (:class:`Arc` with a single
+    ``real`` resource). All of them have these members.
+    """
+
+    @property
+    def id(self) -> int:
+        """The arc's id."""
+
+    @property
+    def cost(self) -> float:
+        """The arc's base cost, which ``update_reduced_costs`` never changes."""
+
+    @property
+    def rows(self) -> list[Row]:
+        """The arc's coefficients in the master problem's constraints."""
+
+    def origin(self) -> AnyNode:
+        """The node the arc leaves."""
+
+    def destination(self) -> AnyNode:
+        """The node the arc enters."""
+
+
+# String → Algorithm enum mapping
+_ALGORITHM_MAP: dict[str, Callable[[], Algorithm]] = {
     "simple": lambda: _ext.graph.Algorithm.Simple,
     "pushing": lambda: _ext.graph.Algorithm.Pushing,
     "pulling": lambda: _ext.graph.Algorithm.Pulling,
@@ -31,15 +184,15 @@ _ALGORITHM_MAP = {
 # Kept for backward compatibility
 ALGORITHMS = tuple(_ALGORITHM_MAP)
 
-# String → SearchDirection mapping (populated lazily after _ext is imported)
-_DIRECTIONS = {
+# String → SearchDirection mapping
+_DIRECTIONS: dict[str, Callable[[], SearchDirection]] = {
     "forward": lambda: _ext.graph.SearchDirection.Forward,
     "backward": lambda: _ext.graph.SearchDirection.Backward,
     "bidirectional": lambda: _ext.graph.SearchDirection.Bidirectional,
 }
 
 
-def _search_direction(direction):
+def _search_direction(direction: SearchDirection | str) -> SearchDirection:
     """The ``SearchDirection`` that *direction* names, a string or the enum itself."""
     if isinstance(direction, str):
         factory = _DIRECTIONS.get(direction)
@@ -109,15 +262,18 @@ class ResourceGraph:
     pre-allocated with a single ``reserve`` call.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialise an empty ResourceGraph.
 
         Register the resources first, then add nodes and arcs, or import a NetworkX graph
         with :meth:`from_networkx`.
         """
-        self._pending: list[tuple] = []  # (canonical_type, ext, feas, cost, dom)
-        self._refs: list = []  # keep Python wrappers alive against GC
-        self._graph = None  # actual C++ object, created lazily
+        # (canonical_type, ext, feas, cost, dom)
+        self._pending: list[tuple[str, Any, Any, Any, Any]] = []
+        self._refs: list[Any] = []  # keep Python wrappers alive against GC
+        # The actual C++ object, created lazily. Its class depends on the registered resource
+        # types, so it is not known statically.
+        self._graph: Any = None
         # Set after _ensure_graph():
         #   _graph_canonical    – full slot tuple of the chosen C++ class (canonical order)
         #   _registered_order   – types in the order the user called add_<type>_resource()
@@ -125,9 +281,11 @@ class ResourceGraph:
         self._registered_order: tuple[str, ...] = ()
         self._full_registration_order: list[str] = []  # per-instance, incl. duplicates
         # Buffers for deferred node/arc insertion
-        self._node_buffer: list = []  # list of (id, source, sink)
-        self._arc_buffer: list = []  # list of (raw_consumption, origin, dest, cost, rows)
-        self._rows_buffer: list = []  # list of (arc_id, row_index, coeff) triples
+        self._node_buffer: list[tuple[int, bool, bool]] = []  # list of (id, source, sink)
+        # list of (raw_consumption, origin, dest, cost, rows)
+        self._arc_buffer: list[tuple[Any, int, int, float, list[Row]]] = []
+        # list of (arc_id, row_index, coeff) triples
+        self._rows_buffer: list[Any] = []
         self._reserve_hint: tuple[int, int] = (
             0,
             0,
@@ -137,15 +295,199 @@ class ResourceGraph:
     # ── Resource registration ─────────────────────────────────────────────────
 
     @staticmethod
-    def _resolve(fn, canonical_type: str):
+    def _resolve(
+        fn: _GenericFunctionDescriptor | AnyResourceFunction, canonical_type: str
+    ) -> AnyResourceFunction:
         """Instantiate a typed C++ function object if *fn* is a generic descriptor."""
         if isinstance(fn, _GenericFunctionDescriptor):
             return fn.create(canonical_type)
         return fn
 
+    def _add_resource(
+        self,
+        canonical_type: str,
+        extension_function: _GenericFunctionDescriptor | AnyResourceFunction,
+        feasibility_function: _GenericFunctionDescriptor | AnyResourceFunction,
+        cost_function: _GenericFunctionDescriptor | AnyResourceFunction,
+        dominance_function: _GenericFunctionDescriptor | AnyResourceFunction,
+    ) -> None:
+        """Register a resource of *canonical_type*; the ``add_<type>_resource`` methods call it."""
+        if self._graph is not None:
+            raise RuntimeError(
+                f"Cannot call add_{canonical_type}_resource after the graph has been "
+                "initialized (i.e. after the first solve / update / get_node call). "
+                "Add all resources before using the graph."
+            )
+        if len(self._pending) == 0 and canonical_type != "real":
+            raise ValueError(
+                f"The first registered resource must be a cost resource ('real'), "
+                f"got {canonical_type!r}. Register a real resource before any other type."
+            )
+        ext = self._resolve(extension_function, canonical_type)
+        feas = self._resolve(feasibility_function, canonical_type)
+        cost = self._resolve(cost_function, canonical_type)
+        dom = self._resolve(dominance_function, canonical_type)
+        self._pending.append((canonical_type, ext, feas, cost, dom))
+
+    def add_real_resource(
+        self,
+        extension_function: ExtensionFunction | ExtensionFunction_real,
+        feasibility_function: FeasibilityFunction | FeasibilityFunction_real,
+        cost_function: CostFunction | CostFunction_real,
+        dominance_function: DominanceFunction | DominanceFunction_real,
+    ) -> None:
+        """Register a real-valued resource (a C++ ``RealResource``, a ``float`` on each arc).
+
+        Resources are numbered in the order they are registered, and each arc gives one
+        consumption per resource in that order. The first resource registered must be a real
+        one: it carries the cost. Register every resource before the graph is first used
+        (``solve``, ``update``, ``get_node``, ...).
+
+        Args:
+            extension_function: How an arc changes the resource
+                (e.g. ``AdditionExtensionFunction()``).
+            feasibility_function: Which values are allowed
+                (e.g. ``MinMaxFeasibilityFunction(0, 50)``).
+            cost_function: What the resource adds to the objective
+                (e.g. ``ValueCostFunction()``).
+            dominance_function: When a label makes another redundant
+                (e.g. ``ValueDominanceFunction()``).
+
+        Raises:
+            RuntimeError: If the graph has already been used.
+        """
+        self._add_resource(
+            "real", extension_function, feasibility_function, cost_function, dominance_function
+        )
+
+    def add_int_resource(
+        self,
+        extension_function: ExtensionFunction | ExtensionFunction_int,
+        feasibility_function: FeasibilityFunction | FeasibilityFunction_int,
+        cost_function: CostFunction | CostFunction_int,
+        dominance_function: DominanceFunction | DominanceFunction_int,
+    ) -> None:
+        """Register an integer resource (a C++ ``IntResource``, an ``int`` on each arc).
+
+        Resources are numbered in the order they are registered, and each arc gives one
+        consumption per resource in that order. Register every resource
+        before the graph is first used (``solve``, ``update``, ``get_node``, ...).
+
+        Args:
+            extension_function: How an arc changes the resource
+                (e.g. ``AdditionExtensionFunction()``).
+            feasibility_function: Which values are allowed
+                (e.g. ``MinMaxFeasibilityFunction(0, 50)``).
+            cost_function: What the resource adds to the objective
+                (e.g. ``ValueCostFunction()``).
+            dominance_function: When a label makes another redundant
+                (e.g. ``ValueDominanceFunction()``).
+
+        Raises:
+            RuntimeError: If the graph has already been used.
+            ValueError: If no real resource has been registered yet.
+        """
+        self._add_resource(
+            "int", extension_function, feasibility_function, cost_function, dominance_function
+        )
+
+    def add_real_set_resource(
+        self,
+        extension_function: ExtensionFunction | ExtensionFunction_real_set,
+        feasibility_function: FeasibilityFunction | FeasibilityFunction_real_set,
+        cost_function: CostFunction | CostFunction_real_set,
+        dominance_function: DominanceFunction | DominanceFunction_real_set,
+    ) -> None:
+        """Register a resource that is a set of reals (a ``set[float]`` on each arc).
+
+        Resources are numbered in the order they are registered, and each arc gives one
+        consumption per resource in that order. Register every resource
+        before the graph is first used (``solve``, ``update``, ``get_node``, ...).
+
+        Args:
+            extension_function: How an arc changes the resource
+                (e.g. ``UnionExtensionFunction()``).
+            feasibility_function: Which values are allowed
+                (e.g. ``SizeFeasibilityFunction(0, 5)``).
+            cost_function: What the resource adds to the objective
+                (e.g. ``TrivialCostFunction()``).
+            dominance_function: When a label makes another redundant
+                (e.g. ``SubsetDominanceFunction()``).
+
+        Raises:
+            RuntimeError: If the graph has already been used.
+            ValueError: If no real resource has been registered yet.
+        """
+        self._add_resource(
+            "real_set", extension_function, feasibility_function, cost_function, dominance_function
+        )
+
+    def add_int_set_resource(
+        self,
+        extension_function: ExtensionFunction | ExtensionFunction_int_set,
+        feasibility_function: FeasibilityFunction | FeasibilityFunction_int_set,
+        cost_function: CostFunction | CostFunction_int_set,
+        dominance_function: DominanceFunction | DominanceFunction_int_set,
+    ) -> None:
+        """Register a resource that is a set of integers (a ``set[int]`` on each arc).
+
+        Resources are numbered in the order they are registered, and each arc gives one
+        consumption per resource in that order. Register every resource
+        before the graph is first used (``solve``, ``update``, ``get_node``, ...).
+
+        Args:
+            extension_function: How an arc changes the resource
+                (e.g. ``UnionExtensionFunction()``).
+            feasibility_function: Which values are allowed
+                (e.g. ``SizeFeasibilityFunction(0, 5)``).
+            cost_function: What the resource adds to the objective
+                (e.g. ``TrivialCostFunction()``).
+            dominance_function: When a label makes another redundant
+                (e.g. ``SubsetDominanceFunction()``).
+
+        Raises:
+            RuntimeError: If the graph has already been used.
+            ValueError: If no real resource has been registered yet.
+        """
+        self._add_resource(
+            "int_set", extension_function, feasibility_function, cost_function, dominance_function
+        )
+
+    def add_bitset_resource(
+        self,
+        extension_function: ExtensionFunction | ExtensionFunction_bitset,
+        feasibility_function: FeasibilityFunction | FeasibilityFunction_bitset,
+        cost_function: CostFunction | CostFunction_bitset,
+        dominance_function: DominanceFunction | DominanceFunction_bitset,
+    ) -> None:
+        """Register a resource that is a set of small non-negative integers, stored as a bitset
+        (a ``set[int]`` on each arc).
+
+        Resources are numbered in the order they are registered, and each arc gives one
+        consumption per resource in that order. Register every resource
+        before the graph is first used (``solve``, ``update``, ``get_node``, ...).
+
+        Args:
+            extension_function: How an arc changes the resource
+                (e.g. ``UnionExtensionFunction()``).
+            feasibility_function: Which values are allowed
+                (e.g. ``SizeFeasibilityFunction(0, 5)``).
+            cost_function: What the resource adds to the objective
+                (e.g. ``TrivialCostFunction()``).
+            dominance_function: When a label makes another redundant
+                (e.g. ``SubsetDominanceFunction()``).
+
+        Raises:
+            RuntimeError: If the graph has already been used.
+            ValueError: If no real resource has been registered yet.
+        """
+        self._add_resource(
+            "bitset", extension_function, feasibility_function, cost_function, dominance_function
+        )
+
     # ── Lazy construction ─────────────────────────────────────────────────────
 
-    def _ensure_graph(self):
+    def _ensure_graph(self) -> None:
         if self._graph is not None:
             return
 
@@ -197,7 +539,7 @@ class ResourceGraph:
             self._refs.extend([ext, feas, cost, dom])
         self._pending.clear()
 
-    def _flush(self):
+    def _flush(self) -> None:
         """Flush buffered nodes and arcs to C++, creating the graph if needed.
 
         Calls ``reserve`` once with the total expected counts so the C++ hash-maps
@@ -245,7 +587,7 @@ class ResourceGraph:
 
     # ── Normalisation helper ──────────────────────────────────────────────────
 
-    def _normalize_consumption(self, consumption):
+    def _normalize_consumption(self, consumption: Any) -> tuple[list[Any], ...]:
         """Normalise a resource-consumption argument into canonical-ordered per-type
         lists.
 
@@ -271,7 +613,7 @@ class ResourceGraph:
                 f"their order must match the order in which add_<type>_resource() was "
                 f"called."
             )
-        result: list = [[] for _ in self._graph_canonical]
+        result: list[list[Any]] = [[] for _ in self._graph_canonical]
         for i, item in enumerate(consumption):
             rt = self._full_registration_order[i]
             slot = self._graph_canonical.index(rt)
@@ -279,7 +621,7 @@ class ResourceGraph:
         return tuple(result)
 
     @staticmethod
-    def _normalize_rows(rows) -> list:
+    def _normalize_rows(rows: tuple[int, float] | Iterable[RowLike] | None) -> list[Row]:
         """Normalise rows to a list of Row objects.
 
         Args:
@@ -291,17 +633,19 @@ class ResourceGraph:
         """
         if rows is None:
             return []
-        _Row = _ext.graph.Row
         if isinstance(rows, tuple) and len(rows) == 2:
-            return [_Row(int(rows[0]), float(rows[1]))]
-        result = []
+            return [Row(int(rows[0]), float(rows[1]))]  # type: ignore[arg-type]
+        result: list[Row] = []
         for r in rows:
-            result.append(_Row(int(r[0]), float(r[1])) if isinstance(r, tuple) else r)
+            if isinstance(r, tuple):
+                result.append(Row(int(r[0]), float(r[1])))
+            else:
+                result.append(r)
         return result
 
     # ── Graph mutation (buffered) ─────────────────────────────────────────────
 
-    def add_node(self, node_id: int, source: bool = False, sink: bool = False):
+    def add_node(self, node_id: int, source: bool = False, sink: bool = False) -> None:
         """Buffer a node for insertion.
 
         The node is not sent to C++ immediately; call :meth:`update` or any read
@@ -311,13 +655,22 @@ class ResourceGraph:
 
     def add_arc(
         self,
-        resource_consumption,
+        resource_consumption: ResourceConsumption,
         origin_node_id: int,
         destination_node_id: int,
         cost: float = 0.0,
-        rows=None,
-    ):
-        """Buffer an arc for insertion.
+        rows: tuple[int, float] | Iterable[RowLike] | None = None,
+    ) -> int:
+        """Buffer an arc for insertion, and return its id.
+
+        Args:
+            resource_consumption: What the arc consumes: one value per registered resource,
+                in the order of the ``add_<type>_resource`` calls.
+            origin_node_id: The node the arc leaves.
+            destination_node_id: The node the arc enters.
+            cost: The arc's base cost.
+            rows: The arc's coefficients in the master problem: ``(index, coefficient)``
+                tuples or :class:`Row` objects.
 
         The arc is not sent to C++ immediately; call :meth:`update` or any read
         operation to flush the buffer.  Arc resource normalization happens at flush
@@ -329,7 +682,7 @@ class ResourceGraph:
         with the rows buffered for them, and the next ``add_arc`` returns the id C++ would
         assign, so ids keep matching after the error.
         """
-        rows = self._normalize_rows(rows)
+        normalized_rows = self._normalize_rows(rows)
         arc_id = self._next_arc_id
         self._next_arc_id += 1
         self._arc_buffer.append(
@@ -338,12 +691,12 @@ class ResourceGraph:
                 int(origin_node_id),
                 int(destination_node_id),
                 float(cost),
-                rows,
+                normalized_rows,
             )
         )
         return arc_id
 
-    def remove_arcs(self, arc_ids):
+    def remove_arcs(self, arc_ids: Sequence[int] | npt.NDArray[np.integer[Any]]) -> list[int]:
         """Remove a batch of arcs by id.
 
         Args:
@@ -356,9 +709,10 @@ class ResourceGraph:
         self._flush()
         if hasattr(arc_ids, "tolist"):
             arc_ids = arc_ids.tolist()
-        return self._graph.remove_arcs(arc_ids)
+        removed: list[int] = self._graph.remove_arcs(arc_ids)
+        return removed
 
-    def restore_arcs(self, arc_ids):
+    def restore_arcs(self, arc_ids: Sequence[int] | npt.NDArray[np.integer[Any]]) -> list[int]:
         """Restore a batch of previously removed arcs by id.
 
         Args:
@@ -371,9 +725,10 @@ class ResourceGraph:
         self._flush()
         if hasattr(arc_ids, "tolist"):
             arc_ids = arc_ids.tolist()
-        return self._graph.restore_arcs(arc_ids)
+        restored: list[int] = self._graph.restore_arcs(arc_ids)
+        return restored
 
-    def update(self):
+    def update(self) -> None:
         """Flush all buffered nodes and arcs to the C++ graph.
 
         Call this explicitly after bulk insertions if you need the graph to be
@@ -383,7 +738,7 @@ class ResourceGraph:
         """
         self._flush()
 
-    def reserve(self, n_nodes: int, n_arcs: int):
+    def reserve(self, n_nodes: int, n_arcs: int) -> None:
         """Pre-allocate capacity for *n_nodes* nodes and *n_arcs* arcs.
 
         When called before the graph has been flushed, the hint is stored and applied at
@@ -400,7 +755,7 @@ class ResourceGraph:
 
     # ── Graph read operations (flush first) ───────────────────────────────────
 
-    def get_node(self, node_id):
+    def get_node(self, node_id: int) -> AnyNode | None:
         """Return the node with the given ID, flushing pending buffers first.
 
         Args:
@@ -410,9 +765,10 @@ class ResourceGraph:
             The C++ node object for *node_id*, or ``None`` if there is none.
         """
         self._flush()
-        return self._graph.get_node(node_id)
+        node: AnyNode | None = self._graph.get_node(node_id)
+        return node
 
-    def get_arc(self, arc_id):
+    def get_arc(self, arc_id: int) -> AnyArc | None:
         """Return the arc with the given ID, flushing pending buffers first.
 
         Args:
@@ -423,14 +779,18 @@ class ResourceGraph:
             is removed.
         """
         self._flush()
-        return self._graph.get_arc(arc_id)
+        arc: AnyArc | None = self._graph.get_arc(arc_id)
+        return arc
 
-    def get_arcs(self, origin_node_id: int, destination_node_id: int):
+    def get_arcs(self, origin_node_id: int, destination_node_id: int) -> list[AnyArc]:
         """Return the arcs from *origin_node_id* to *destination_node_id*."""
         self._flush()
-        return self._graph.get_arcs(origin_node_id, destination_node_id)
+        arcs: list[AnyArc] = self._graph.get_arcs(origin_node_id, destination_node_id)
+        return arcs
 
-    def update_arc(self, arc, resource_consumption, *args, **kwargs):
+    def update_arc(
+        self, arc: AnyArc, resource_consumption: ResourceConsumption, cost: float | None = None
+    ) -> None:
         """Update an arc's resource consumption in place.
 
         Flushes all pending buffers before modifying the arc so the C++ object
@@ -438,20 +798,16 @@ class ResourceGraph:
         flat-style convention as :meth:`add_arc`.
 
         Args:
-            arc: Arc object or arc ID to update.
+            arc: The arc to update, as :meth:`get_arc` returns it.
             resource_consumption: New resource consumption values, in the same
                 order as the original :meth:`add_arc` call.
-            *args: Extra positional arguments forwarded to the C++ ``update_arc``.
-            **kwargs: Extra keyword arguments forwarded to the C++ ``update_arc``.
-
-        Returns:
-            Whatever the C++ ``update_arc`` returns.
+            cost: The arc's new base cost. ``None`` (the default) keeps the cost it has.
         """
         self._flush()
         norm_res_cons = self._normalize_consumption(resource_consumption)
-        return self._graph.update_arc(arc, norm_res_cons, *args, **kwargs)
+        self._graph.update_arc(arc, norm_res_cons, cost)
 
-    def add_rows_to_arc(self, arc_id: int, rows) -> None:
+    def add_rows_to_arc(self, arc_id: int, rows: tuple[int, float] | Iterable[RowLike]) -> None:
         """Buffer rows to be appended to arc *arc_id*; applied at next flush/solve.
 
         Args:
@@ -460,15 +816,20 @@ class ResourceGraph:
                   list of :class:`Row` objects.
         """
         arc_id = int(arc_id)
+        row_list: Iterable[RowLike]
         if isinstance(rows, tuple) and len(rows) == 2:
-            rows = [rows]
-        for r in rows:
+            row_list = [rows]  # type: ignore[list-item]
+        else:
+            row_list = rows  # type: ignore[assignment]
+        for r in row_list:
             if isinstance(r, tuple):
                 self._rows_buffer.append((arc_id, int(r[0]), float(r[1])))
             else:
                 self._rows_buffer.append((arc_id, int(r.index), float(r.coefficient)))
 
-    def add_rows(self, data) -> None:
+    def add_rows(
+        self, data: Iterable[tuple[int, int, float]] | npt.NDArray[np.floating[Any]]
+    ) -> None:
         """Buffer rows for multiple arcs at once; applied at next flush/solve.
 
         Args:
@@ -481,7 +842,7 @@ class ResourceGraph:
         else:
             self._rows_buffer.extend(data)
 
-    def clone(self, include_rows: bool = True, clone_removed_arcs: bool = False) -> "ResourceGraph":
+    def clone(self, include_rows: bool = True, clone_removed_arcs: bool = False) -> ResourceGraph:
         """Return a deep clone of this ResourceGraph with stable arc IDs.
 
         Flushes all pending buffers before cloning so the clone reflects the
@@ -513,7 +874,7 @@ class ResourceGraph:
         cloned._next_arc_id = cpp_clone.next_arc_id()
         return cloned
 
-    def clone_topology(self) -> "ResourceGraph":
+    def clone_topology(self) -> ResourceGraph:
         """Clone topology only (arc rows are empty in the clone).
 
         Use :meth:`add_rows` or :meth:`add_rows_to_arc` to populate rows per
@@ -524,7 +885,7 @@ class ResourceGraph:
         """
         return self.clone(include_rows=False)
 
-    def sort_nodes(self, comp=None):
+    def sort_nodes(self, comp: Callable[[AnyNode, AnyNode], bool] | None = None) -> None:
         """Sort graph nodes in place.
 
         Args:
@@ -542,13 +903,13 @@ class ResourceGraph:
 
     def solve(
         self,
-        algorithm="simple",
+        algorithm: Algorithm | AlgorithmName = "simple",
         upper_bound: float = math.inf,
-        params=None,
+        params: AlgorithmParams | BucketAlgorithmParams | None = None,
         preprocess: bool = True,
         cost_index: int = 0,
-        direction=None,
-    ):
+        direction: SearchDirection | DirectionName | None = None,
+    ) -> SolveResult:
         """Solve the RCSPP.
 
         Args:
@@ -595,12 +956,15 @@ class ResourceGraph:
         """
         if cost_index < 0:
             raise ValueError(f"cost_index must be non-negative, got {cost_index}")
-        _ext.graph.check_interrupted()
-        if params is None:
-            params = _ext.graph.AlgorithmParams()
+        check_interrupted()
         self._flush()
-        if isinstance(params, BucketAlgorithmParams):
-            params = params._to_cpp(self._full_registration_order)
+        cpp_params: AlgorithmParams
+        if params is None:
+            cpp_params = AlgorithmParams()
+        elif isinstance(params, BucketAlgorithmParams):
+            cpp_params = params._to_cpp(self._full_registration_order)
+        else:
+            cpp_params = params
         if isinstance(algorithm, str):
             factory = _ALGORITHM_MAP.get(algorithm)
             if factory is None:
@@ -608,29 +972,32 @@ class ResourceGraph:
                     f"Unknown algorithm {algorithm!r}. Choose from: {', '.join(ALGORITHMS)}"
                 )
             algorithm = factory()
-        is_bidirectional_alias = algorithm == _ext.graph.Algorithm.Bidirectional
+        is_bidirectional_alias = algorithm == Algorithm.Bidirectional
         if direction is None:
             chosen = (
-                _ext.graph.SearchDirection.Bidirectional
-                if is_bidirectional_alias
-                else params.direction
+                SearchDirection.Bidirectional if is_bidirectional_alias else cpp_params.direction
             )
         else:
             chosen = _search_direction(direction)
-        if is_bidirectional_alias and chosen != _ext.graph.SearchDirection.Bidirectional:
+        if is_bidirectional_alias and chosen != SearchDirection.Bidirectional:
             raise ValueError(
                 "algorithm='bidirectional' searches bidirectionally; for another direction, "
                 "use algorithm='simple' with that direction"
             )
         # Set for this call only: the caller's params keep their own direction.
-        previous = params.direction
-        params.direction = chosen
+        previous = cpp_params.direction
+        cpp_params.direction = chosen
         try:
-            return self._graph.solve(algorithm, upper_bound, params, preprocess, cost_index)
+            result: SolveResult = self._graph.solve(
+                algorithm, upper_bound, cpp_params, preprocess, cost_index
+            )
+            return result
         finally:
-            params.direction = previous
+            cpp_params.direction = previous
 
-    def check_model(self, direction="bidirectional") -> list:
+    def check_model(
+        self, direction: SearchDirection | DirectionName = "bidirectional"
+    ) -> list[str]:
         """Run the model checks a search in *direction* needs, without solving.
 
         A forward search needs no checks. A backward search checks that every
@@ -651,7 +1018,11 @@ class ResourceGraph:
 
     # ── Dual-based reduced-cost update ───────────────────────────────────────
 
-    def update_reduced_costs(self, duals, cost_index: int = 0):
+    def update_reduced_costs(
+        self,
+        duals: Mapping[int, float] | Sequence[float] | npt.NDArray[np.floating[Any]],
+        cost_index: int = 0,
+    ) -> None:
         """Recompute arc extender costs from dual values without rebuilding the graph.
 
         For each arc, computes::
@@ -699,6 +1070,138 @@ class ResourceGraph:
             duals_arr = np.ascontiguousarray(duals, dtype=np.float64)
         self._graph.update_reduced_costs(duals_arr, cost_index)
 
+    # ── Reads and arc removal, forwarded to the C++ graph (flush first) ───────
+
+    def number_of_nodes(self) -> int:
+        """Return the number of nodes, buffered ones included."""
+        self._flush()
+        count: int = self._graph.number_of_nodes()
+        return count
+
+    def number_of_arcs(self) -> int:
+        """Return the number of arcs in the graph, buffered ones included, removed ones not."""
+        self._flush()
+        count: int = self._graph.number_of_arcs()
+        return count
+
+    def node_ids(self) -> list[int]:
+        """Return the ids of the nodes."""
+        self._flush()
+        ids: list[int] = self._graph.node_ids()
+        return ids
+
+    def source_node_ids(self) -> list[int]:
+        """Return the ids of the source nodes."""
+        self._flush()
+        ids: list[int] = self._graph.source_node_ids()
+        return ids
+
+    def sink_node_ids(self) -> list[int]:
+        """Return the ids of the sink nodes."""
+        self._flush()
+        ids: list[int] = self._graph.sink_node_ids()
+        return ids
+
+    def arc_ids(self) -> list[int]:
+        """Return the ids of the arcs in the graph; removed arcs are not listed."""
+        self._flush()
+        ids: list[int] = self._graph.arc_ids()
+        return ids
+
+    def removed_arc_ids(self) -> list[int]:
+        """Return the ids of the removed arcs, which :meth:`restore_arcs` can bring back."""
+        self._flush()
+        ids: list[int] = self._graph.removed_arc_ids()
+        return ids
+
+    def next_arc_id(self) -> int:
+        """Return the id the next :meth:`add_arc` will be given."""
+        self._flush()
+        arc_id: int = self._graph.next_arc_id()
+        return arc_id
+
+    def is_source(self, node_id: int) -> bool:
+        """Return whether *node_id* is a source."""
+        self._flush()
+        answer: bool = self._graph.is_source(node_id)
+        return answer
+
+    def is_sink(self, node_id: int) -> bool:
+        """Return whether *node_id* is a sink."""
+        self._flush()
+        answer: bool = self._graph.is_sink(node_id)
+        return answer
+
+    def is_connected(self, origin_node_id: int, destination_node_id: int) -> bool:
+        """Return whether *destination_node_id* can be reached from *origin_node_id*."""
+        self._flush()
+        answer: bool = self._graph.is_connected(origin_node_id, destination_node_id)
+        return answer
+
+    def get_removed_arc(self, arc_id: int) -> AnyArc | None:
+        """Return the removed arc with this id, or ``None`` if no removed arc has it."""
+        self._flush()
+        arc: AnyArc | None = self._graph.get_removed_arc(arc_id)
+        return arc
+
+    def remove_arc(self, arc: int | AnyArc) -> bool:
+        """Remove one arc, given by id or as an arc object; :meth:`restore_arc` brings it back.
+
+        Returns:
+            Whether an arc was removed.
+        """
+        self._flush()
+        removed: bool = self._graph.remove_arc(arc)
+        return removed
+
+    def restore_arc(self, arc: int | AnyArc) -> bool:
+        """Restore one removed arc, given by id or as an arc object.
+
+        Returns:
+            Whether an arc was restored.
+        """
+        self._flush()
+        restored: bool = self._graph.restore_arc(arc)
+        return restored
+
+    def force_arc(self, arc: int | AnyArc) -> list[int]:
+        """Make every path through the arc's endpoints use this arc.
+
+        Removes all other arcs out of the arc's origin and all other arcs into its
+        destination.
+
+        Returns:
+            The ids of the removed arcs, to pass to :meth:`restore_arcs`.
+        """
+        self._flush()
+        removed: list[int] = self._graph.force_arc(arc)
+        return removed
+
+    def remove_arcs_if(self, pred: Callable[[AnyArc], bool]) -> list[int]:
+        """Remove every arc for which *pred* returns true.
+
+        Returns:
+            The ids of the removed arcs.
+        """
+        self._flush()
+        removed: list[int] = self._graph.remove_arcs_if(pred)
+        return removed
+
+    def restore_arcs_if(self, pred: Callable[[AnyArc], bool]) -> list[int]:
+        """Restore every removed arc for which *pred* returns true.
+
+        Returns:
+            The ids of the restored arcs.
+        """
+        self._flush()
+        restored: list[int] = self._graph.restore_arcs_if(pred)
+        return restored
+
+    def remove_infeasible_arcs(self) -> None:
+        """Remove the arcs the feasibility preprocessor finds no feasible path can use."""
+        self._flush()
+        self._graph.remove_infeasible_arcs()
+
     # ── String representation ─────────────────────────────────────────────────
 
     def to_string(self, print_arcs: bool = False) -> str:
@@ -714,7 +1217,8 @@ class ResourceGraph:
         if self._graph is None and not self._node_buffer and not self._arc_buffer:
             return ""
         self._flush()
-        return self._graph.to_string(print_arcs)
+        text: str = self._graph.to_string(print_arcs)
+        return text
 
     def __str__(self) -> str:
         """Return a human-readable string representation of the graph."""
@@ -739,11 +1243,13 @@ class ResourceGraph:
 
     # ── Transparent delegation for everything else ────────────────────────────
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         """Delegate unknown attribute lookups to the underlying C++ graph.
 
-        Called only when normal attribute lookup fails.  Flushes pending
-        buffers so the C++ object is up-to-date before the attribute is read.
+        A last resort: every method of the C++ graph that users are meant to call is declared
+        above, with its signature, and tests/python/test_static_api.py fails when the C++ graph
+        gains a public method that is not. Called only when normal attribute lookup fails.
+        Flushes pending buffers so the C++ object is up-to-date before the attribute is read.
 
         Args:
             name: Attribute name to look up on the C++ graph.
@@ -758,7 +1264,7 @@ class ResourceGraph:
 
     # ── NetworkX integration ──────────────────────────────────────────────────
 
-    def from_networkx(self, nx_graph: nx.DiGraph):
+    def from_networkx(self, nx_graph: nx.DiGraph[Any]) -> None:
         """Populate the graph from a NetworkX DiGraph.
 
         Nodes and arcs are buffered and flushed to C++ in a single batch.
@@ -834,53 +1340,11 @@ class ResourceGraph:
         self.update()
 
 
-# ── Generate add_<type>_resource methods ─────────────────────────────────────
-
-
-def _make_add_resource_method(canonical_type: str):
-    def add_resource_method(
-        self,
-        extension_function,
-        feasibility_function,
-        cost_function,
-        dominance_function,
-    ):
-        if self._graph is not None:
-            raise RuntimeError(
-                f"Cannot call add_{canonical_type}_resource after the graph has been "
-                "initialized (i.e. after the first solve / update / get_node call). "
-                "Add all resources before using the graph."
-            )
-        if len(self._pending) == 0 and canonical_type != "real":
-            raise ValueError(
-                f"The first registered resource must be a cost resource ('real'), "
-                f"got {canonical_type!r}. Register a real resource before any other type."
-            )
-        ext = self._resolve(extension_function, canonical_type)
-        feas = self._resolve(feasibility_function, canonical_type)
-        cost = self._resolve(cost_function, canonical_type)
-        dom = self._resolve(dominance_function, canonical_type)
-        self._pending.append((canonical_type, ext, feas, cost, dom))
-
-    add_resource_method.__name__ = f"add_{canonical_type}_resource"
-    return add_resource_method
-
-
-for _rt in _ALL_RESOURCE_TYPES:
-    setattr(ResourceGraph, f"add_{_rt}_resource", _make_add_resource_method(_rt))
-
-
-# Re-export all public graph submodule symbols (Row, AlgorithmParams, Solution, …)
-for _k in dir(_ext.graph):
-    if not _k.startswith("_") and _k != "ResourceGraph":
-        globals()[_k] = getattr(_ext.graph, _k)
-
 # Patch the C++ submodule so `from rcspp._core.graph import ResourceGraph` resolves correctly
 _ext.graph.ResourceGraph = ResourceGraph
 
 # ── BucketAlgorithmParams Python wrapper ─────────────────────────────────────
-# Keep a reference to the raw C++ class so the wrapper can instantiate it.
-_CppBucketAlgorithmParams = _ext.graph.BucketAlgorithmParams
+# _CppBucketAlgorithmParams, imported above, is the raw C++ class the wrapper instantiates.
 
 
 class BucketAlgorithmParams:
@@ -911,10 +1375,10 @@ class BucketAlgorithmParams:
     def __init__(
         self,
         bucket_width: int = 100,
-        bucket_resource_pos=None,
-        sort_resource_pos=None,
-        **kwargs,
-    ):
+        bucket_resource_pos: int | None = None,
+        sort_resource_pos: int | None = None,
+        **kwargs: Any,
+    ) -> None:
         """Create BucketAlgorithmParams with optional resource-position hints.
 
         Args:
@@ -939,7 +1403,46 @@ class BucketAlgorithmParams:
         for k, v in kwargs.items():
             setattr(self._cpp, k, v)
 
-    def __getattr__(self, name: str):
+    # The fields of the C++ params object, which __getattr__ and __setattr__ forward to. Declared
+    # for IDEs and type checkers only; tests/python/test_static_api.py keeps the list in step
+    # with the extension.
+    if TYPE_CHECKING:
+        bucket_resource_index: int
+        bucket_resource_type: str
+        bucket_width: int
+        critical_resource_index: int
+        direction: SearchDirection
+        half_way_point: float
+        join_after_early_stop: bool
+        limit_to_available_ram: bool
+        limit_to_total_ram: bool
+        max_extended_labels_per_node: int
+        max_iterations: int
+        max_memory_gb: float
+        max_phases: int
+        max_solutions: int
+        memory_check_interval: int
+        memory_limit_fraction: float
+        memory_pressure_fraction: float
+        memory_pressure_max_labels_per_node: int
+        prune_by_upper_bound: bool
+        release_after_solve: bool
+        return_dominated_solutions: bool
+        seed: int
+        sort_resource_index: int
+        tabu_exempt_node_ids: set[int]
+        tabu_random_noise: bool
+        tabu_tenure: int
+        timeout_s: float
+        tolerance: float
+
+        def check(self) -> None:
+            """Validate the parameters; raises on an inconsistent combination."""
+
+        def could_be_non_optimal(self) -> bool:
+            """Return whether these parameters can stop a solve before it proves optimality."""
+
+    def __getattr__(self, name: str) -> Any:
         """Forward public attribute reads to the underlying C++ params object.
 
         Args:
@@ -955,7 +1458,7 @@ class BucketAlgorithmParams:
             raise AttributeError(name)
         return getattr(self._cpp, name)
 
-    def __setattr__(self, name: str, value):
+    def __setattr__(self, name: str, value: Any) -> None:
         """Forward public attribute writes to the underlying C++ params object.
 
         Private names (starting with ``_``) are stored on the Python instance
@@ -970,7 +1473,7 @@ class BucketAlgorithmParams:
         else:
             setattr(self._cpp, name, value)
 
-    def _to_cpp(self, full_registration_order: list) -> "_CppBucketAlgorithmParams":
+    def _to_cpp(self, full_registration_order: list[str]) -> _CppBucketAlgorithmParams:
         """Resolve resource positions and return the underlying C++ params object.
 
         Args:
@@ -984,7 +1487,7 @@ class BucketAlgorithmParams:
         reg = full_registration_order
         n = len(reg)
 
-        def resolve(pos: int, label: str) -> tuple:
+        def resolve(pos: int, label: str) -> tuple[str, int]:
             if pos < 0 or pos >= n:
                 raise ValueError(
                     f"{label}={pos} out of range; graph has {n} registered "

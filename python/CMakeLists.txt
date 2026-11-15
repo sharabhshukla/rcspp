@@ -105,10 +105,14 @@ install(TARGETS ${PYTHON_EXTENSION_NAME}
     RUNTIME DESTINATION ${PYTHON_PACKAGE_NAME}
 )
 
-install(DIRECTORY "${PY_PACKAGE_DIR}/"
-    DESTINATION ${PYTHON_PACKAGE_NAME}
-    FILES_MATCHING
-    PATTERN "*.py"
-    PATTERN "*.pyi"
-    PATTERN "py.typed"
-)
+# Under scikit-build-core the pure-Python package is packaged from the source tree
+# (wheel.packages in pyproject.toml), which is what lets an editable install read it there.
+if(NOT SKBUILD)
+  install(DIRECTORY "${PY_PACKAGE_DIR}/"
+      DESTINATION ${PYTHON_PACKAGE_NAME}
+      FILES_MATCHING
+      PATTERN "*.py"
+      PATTERN "*.pyi"
+      PATTERN "py.typed"
+  )
+endif()

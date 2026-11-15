@@ -1,0 +1,8 @@
+# What the "Typed Python API" job of ci.yml installs beside rcspp itself.
+mypy==2.4.0
+pyright
+types-networkx
+# The examples import these.
+mip; sys_platform != "win32"
+numpy
+scipy

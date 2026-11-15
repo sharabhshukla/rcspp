@@ -10,8 +10,220 @@ C++ classes are registered as ``FunctionName_<resource_type>``
 """
 
 from collections.abc import Iterable, Mapping
+from typing import Any, TypeAlias
 
 from . import _core as _ext
+
+# The typed C++ classes, one per function and resource type. They are listed by name, not copied
+# in a loop, so that an IDE or a type checker sees them; tests/python/test_static_api.py fails
+# when the extension gains a class that is missing here.
+from ._core.resource import (
+    AdditionExtensionFunction_int,
+    AdditionExtensionFunction_real,
+    CapacityExtensionFunction_int,
+    CapacityExtensionFunction_real,
+    CostFunction_bitset,
+    CostFunction_int,
+    CostFunction_int_set,
+    CostFunction_real,
+    CostFunction_real_set,
+    DifferenceExtensionFunction_bitset,
+    DifferenceExtensionFunction_int_set,
+    DifferenceExtensionFunction_real_set,
+    DominanceFunction_bitset,
+    DominanceFunction_int,
+    DominanceFunction_int_set,
+    DominanceFunction_real,
+    DominanceFunction_real_set,
+    ExtensionFunction_bitset,
+    ExtensionFunction_int,
+    ExtensionFunction_int_set,
+    ExtensionFunction_real,
+    ExtensionFunction_real_set,
+    FeasibilityFunction_bitset,
+    FeasibilityFunction_int,
+    FeasibilityFunction_int_set,
+    FeasibilityFunction_real,
+    FeasibilityFunction_real_set,
+    IntersectionExtensionFunction_bitset,
+    IntersectionExtensionFunction_int_set,
+    IntersectionExtensionFunction_real_set,
+    IntersectionFeasibilityFunction_bitset,
+    IntersectionFeasibilityFunction_int_set,
+    IntersectionFeasibilityFunction_real_set,
+    MinMaxFeasibilityFunction_int,
+    MinMaxFeasibilityFunction_real,
+    NgPathExtensionFunction_bitset,
+    NgPathExtensionFunction_int_set,
+    NgPathExtensionFunction_real_set,
+    SizeFeasibilityFunction_bitset,
+    SizeFeasibilityFunction_int_set,
+    SizeFeasibilityFunction_real_set,
+    SubsetDominanceFunction_bitset,
+    SubsetDominanceFunction_int_set,
+    SubsetDominanceFunction_real_set,
+    SupersetDominanceFunction_bitset,
+    SupersetDominanceFunction_int_set,
+    SupersetDominanceFunction_real_set,
+    TimeWindowExtensionFunction_int,
+    TimeWindowExtensionFunction_real,
+    TimeWindowFeasibilityFunction_int,
+    TimeWindowFeasibilityFunction_real,
+    TrivialCostFunction_bitset,
+    TrivialCostFunction_int,
+    TrivialCostFunction_int_set,
+    TrivialCostFunction_real,
+    TrivialCostFunction_real_set,
+    TrivialFeasibilityFunction_bitset,
+    TrivialFeasibilityFunction_int,
+    TrivialFeasibilityFunction_int_set,
+    TrivialFeasibilityFunction_real,
+    TrivialFeasibilityFunction_real_set,
+    UnionExtensionFunction_bitset,
+    UnionExtensionFunction_int_set,
+    UnionExtensionFunction_real_set,
+    ValueCostFunction_int,
+    ValueCostFunction_real,
+    ValueDominanceFunction_int,
+    ValueDominanceFunction_real,
+)
+
+__all__ = [
+    # Generic descriptors: the resource type is chosen by the add_<type>_resource call.
+    "AdditionExtensionFunction",
+    "CapacityExtensionFunction",
+    "DifferenceExtensionFunction",
+    "IntersectionExtensionFunction",
+    "IntersectionFeasibilityFunction",
+    "MinMaxFeasibilityFunction",
+    "NgPathExtensionFunction",
+    "SizeFeasibilityFunction",
+    "SubsetDominanceFunction",
+    "SupersetDominanceFunction",
+    "TimeWindowExtensionFunction",
+    "TimeWindowFeasibilityFunction",
+    "TrivialCostFunction",
+    "TrivialFeasibilityFunction",
+    "UnionExtensionFunction",
+    "ValueCostFunction",
+    "ValueDominanceFunction",
+    # The base of each role's generic descriptors.
+    "CostFunction",
+    "DominanceFunction",
+    "ExtensionFunction",
+    "FeasibilityFunction",
+    # What a generic descriptor creates, for annotations.
+    "AnyCostFunction",
+    "AnyDominanceFunction",
+    "AnyExtensionFunction",
+    "AnyFeasibilityFunction",
+    "AnyResourceFunction",
+    # Typed C++ classes.
+    "AdditionExtensionFunction_int",
+    "AdditionExtensionFunction_real",
+    "CapacityExtensionFunction_int",
+    "CapacityExtensionFunction_real",
+    "CostFunction_bitset",
+    "CostFunction_int",
+    "CostFunction_int_set",
+    "CostFunction_real",
+    "CostFunction_real_set",
+    "DifferenceExtensionFunction_bitset",
+    "DifferenceExtensionFunction_int_set",
+    "DifferenceExtensionFunction_real_set",
+    "DominanceFunction_bitset",
+    "DominanceFunction_int",
+    "DominanceFunction_int_set",
+    "DominanceFunction_real",
+    "DominanceFunction_real_set",
+    "ExtensionFunction_bitset",
+    "ExtensionFunction_int",
+    "ExtensionFunction_int_set",
+    "ExtensionFunction_real",
+    "ExtensionFunction_real_set",
+    "FeasibilityFunction_bitset",
+    "FeasibilityFunction_int",
+    "FeasibilityFunction_int_set",
+    "FeasibilityFunction_real",
+    "FeasibilityFunction_real_set",
+    "IntersectionExtensionFunction_bitset",
+    "IntersectionExtensionFunction_int_set",
+    "IntersectionExtensionFunction_real_set",
+    "IntersectionFeasibilityFunction_bitset",
+    "IntersectionFeasibilityFunction_int_set",
+    "IntersectionFeasibilityFunction_real_set",
+    "MinMaxFeasibilityFunction_int",
+    "MinMaxFeasibilityFunction_real",
+    "NgPathExtensionFunction_bitset",
+    "NgPathExtensionFunction_int_set",
+    "NgPathExtensionFunction_real_set",
+    "SizeFeasibilityFunction_bitset",
+    "SizeFeasibilityFunction_int_set",
+    "SizeFeasibilityFunction_real_set",
+    "SubsetDominanceFunction_bitset",
+    "SubsetDominanceFunction_int_set",
+    "SubsetDominanceFunction_real_set",
+    "SupersetDominanceFunction_bitset",
+    "SupersetDominanceFunction_int_set",
+    "SupersetDominanceFunction_real_set",
+    "TimeWindowExtensionFunction_int",
+    "TimeWindowExtensionFunction_real",
+    "TimeWindowFeasibilityFunction_int",
+    "TimeWindowFeasibilityFunction_real",
+    "TrivialCostFunction_bitset",
+    "TrivialCostFunction_int",
+    "TrivialCostFunction_int_set",
+    "TrivialCostFunction_real",
+    "TrivialCostFunction_real_set",
+    "TrivialFeasibilityFunction_bitset",
+    "TrivialFeasibilityFunction_int",
+    "TrivialFeasibilityFunction_int_set",
+    "TrivialFeasibilityFunction_real",
+    "TrivialFeasibilityFunction_real_set",
+    "UnionExtensionFunction_bitset",
+    "UnionExtensionFunction_int_set",
+    "UnionExtensionFunction_real_set",
+    "ValueCostFunction_int",
+    "ValueCostFunction_real",
+    "ValueDominanceFunction_int",
+    "ValueDominanceFunction_real",
+]
+
+# ── The four roles, over every resource type ──────────────────────────────────
+# Each typed class derives from the base of its role and resource type
+# (ValueCostFunction_real from CostFunction_real, ...).
+
+AnyExtensionFunction: TypeAlias = (
+    ExtensionFunction_real
+    | ExtensionFunction_int
+    | ExtensionFunction_real_set
+    | ExtensionFunction_int_set
+    | ExtensionFunction_bitset
+)
+AnyFeasibilityFunction: TypeAlias = (
+    FeasibilityFunction_real
+    | FeasibilityFunction_int
+    | FeasibilityFunction_real_set
+    | FeasibilityFunction_int_set
+    | FeasibilityFunction_bitset
+)
+AnyCostFunction: TypeAlias = (
+    CostFunction_real
+    | CostFunction_int
+    | CostFunction_real_set
+    | CostFunction_int_set
+    | CostFunction_bitset
+)
+AnyDominanceFunction: TypeAlias = (
+    DominanceFunction_real
+    | DominanceFunction_int
+    | DominanceFunction_real_set
+    | DominanceFunction_int_set
+    | DominanceFunction_bitset
+)
+AnyResourceFunction: TypeAlias = (
+    AnyExtensionFunction | AnyFeasibilityFunction | AnyCostFunction | AnyDominanceFunction
+)
 
 # ── Generic resource-function descriptors ─────────────────────────────────────
 # These are resolved to the correct typed C++ object when add_xxx_resource is
@@ -26,7 +238,7 @@ class _GenericFunctionDescriptor:
     object once the concrete resource type is known.
     """
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyResourceFunction:
         """Instantiate the typed C++ function object for *resource_type*.
 
         Args:
@@ -38,7 +250,72 @@ class _GenericFunctionDescriptor:
         raise NotImplementedError
 
 
-def _get_fn(fn_name: str, resource_type: str):
+# ── One base per role ─────────────────────────────────────────────────────────
+# add_<type>_resource takes one function of each role, in this order. The bases let a type
+# checker refuse, say, a feasibility function passed where the extension function goes.
+
+
+class ExtensionFunction(_GenericFunctionDescriptor):
+    """Base of the generic extension functions: how an arc changes the resource."""
+
+    def create(self, resource_type: str) -> AnyExtensionFunction:
+        """Instantiate the typed C++ extension function for *resource_type*.
+
+        Args:
+            resource_type: Resource type string (e.g. ``"real"``, ``"int_set"``).
+
+        Raises:
+            NotImplementedError: Must be overridden by subclasses.
+        """
+        raise NotImplementedError
+
+
+class FeasibilityFunction(_GenericFunctionDescriptor):
+    """Base of the generic feasibility functions: whether a resource value is allowed."""
+
+    def create(self, resource_type: str) -> AnyFeasibilityFunction:
+        """Instantiate the typed C++ feasibility function for *resource_type*.
+
+        Args:
+            resource_type: Resource type string (e.g. ``"real"``, ``"int_set"``).
+
+        Raises:
+            NotImplementedError: Must be overridden by subclasses.
+        """
+        raise NotImplementedError
+
+
+class CostFunction(_GenericFunctionDescriptor):
+    """Base of the generic cost functions: what the resource adds to the objective."""
+
+    def create(self, resource_type: str) -> AnyCostFunction:
+        """Instantiate the typed C++ cost function for *resource_type*.
+
+        Args:
+            resource_type: Resource type string (e.g. ``"real"``, ``"int_set"``).
+
+        Raises:
+            NotImplementedError: Must be overridden by subclasses.
+        """
+        raise NotImplementedError
+
+
+class DominanceFunction(_GenericFunctionDescriptor):
+    """Base of the generic dominance functions: when one label makes another redundant."""
+
+    def create(self, resource_type: str) -> AnyDominanceFunction:
+        """Instantiate the typed C++ dominance function for *resource_type*.
+
+        Args:
+            resource_type: Resource type string (e.g. ``"real"``, ``"int_set"``).
+
+        Raises:
+            NotImplementedError: Must be overridden by subclasses.
+        """
+        raise NotImplementedError
+
+
+def _get_fn(fn_name: str, resource_type: str) -> Any:
     """Look up a typed C++ class by name and resource type.
 
     Args:
@@ -60,13 +337,13 @@ def _get_fn(fn_name: str, resource_type: str):
 # ── Numerical + container: trivial ───────────────────────────────────────────
 
 
-class TrivialFeasibilityFunction(_GenericFunctionDescriptor):
+class TrivialFeasibilityFunction(FeasibilityFunction):
     """Feasibility function that always returns feasible.
 
     Applicable to both numerical and container resource types.
     """
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyFeasibilityFunction:
         """Instantiate a TrivialFeasibilityFunction for *resource_type*.
 
         Args:
@@ -78,13 +355,13 @@ class TrivialFeasibilityFunction(_GenericFunctionDescriptor):
         return _get_fn("TrivialFeasibilityFunction", resource_type)()
 
 
-class TrivialCostFunction(_GenericFunctionDescriptor):
+class TrivialCostFunction(CostFunction):
     """Cost function that always returns zero cost.
 
     Applicable to both numerical and container resource types.
     """
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyCostFunction:
         """Instantiate a TrivialCostFunction for *resource_type*.
 
         Args:
@@ -99,13 +376,13 @@ class TrivialCostFunction(_GenericFunctionDescriptor):
 # ── Numerical only ────────────────────────────────────────────────────────────
 
 
-class AdditionExtensionFunction(_GenericFunctionDescriptor):
+class AdditionExtensionFunction(ExtensionFunction):
     """Extension function that adds the arc consumption to the resource value.
 
     Applicable to numerical resource types only.
     """
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyExtensionFunction:
         """Instantiate an AdditionExtensionFunction for *resource_type*.
 
         Args:
@@ -118,13 +395,13 @@ class AdditionExtensionFunction(_GenericFunctionDescriptor):
         return _get_fn("AdditionExtensionFunction", resource_type)()
 
 
-class ValueCostFunction(_GenericFunctionDescriptor):
+class ValueCostFunction(CostFunction):
     """Cost function that uses the resource value directly as cost.
 
     Applicable to numerical resource types only.
     """
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyCostFunction:
         """Instantiate a ValueCostFunction for *resource_type*.
 
         Args:
@@ -137,14 +414,14 @@ class ValueCostFunction(_GenericFunctionDescriptor):
         return _get_fn("ValueCostFunction", resource_type)()
 
 
-class ValueDominanceFunction(_GenericFunctionDescriptor):
+class ValueDominanceFunction(DominanceFunction):
     """Dominance function that compares resource values directly.
 
     A label dominates another if its resource value is less than or equal to the
     other's. Applicable to numerical resource types only.
     """
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyDominanceFunction:
         """Instantiate a ValueDominanceFunction for *resource_type*.
 
         Args:
@@ -157,14 +434,14 @@ class ValueDominanceFunction(_GenericFunctionDescriptor):
         return _get_fn("ValueDominanceFunction", resource_type)()
 
 
-class MinMaxFeasibilityFunction(_GenericFunctionDescriptor):
+class MinMaxFeasibilityFunction(FeasibilityFunction):
     """Feasibility function that enforces a [min, max] bound on a resource value.
 
     A label is feasible when its resource value lies within the closed interval
     ``[min_value, max_value]``. Applicable to numerical resource types only.
     """
 
-    def __init__(self, min_value, max_value):
+    def __init__(self, min_value: float, max_value: float) -> None:
         """Initialize the feasibility bounds.
 
         Args:
@@ -174,7 +451,7 @@ class MinMaxFeasibilityFunction(_GenericFunctionDescriptor):
         self.min_value = min_value
         self.max_value = max_value
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyFeasibilityFunction:
         """Instantiate a MinMaxFeasibilityFunction for *resource_type*.
 
         Args:
@@ -187,7 +464,7 @@ class MinMaxFeasibilityFunction(_GenericFunctionDescriptor):
         return _get_fn("MinMaxFeasibilityFunction", resource_type)(self.min_value, self.max_value)
 
 
-class TimeWindowExtensionFunction(_GenericFunctionDescriptor):
+class TimeWindowExtensionFunction(ExtensionFunction):
     """Extension function that advances the resource to the earliest feasible time.
 
     At each node the resource value is extended by the arc consumption and then clamped
@@ -195,7 +472,11 @@ class TimeWindowExtensionFunction(_GenericFunctionDescriptor):
     numerical resource types only.
     """
 
-    def __init__(self, tw_by_node: dict, default_max_value=None):
+    def __init__(
+        self,
+        tw_by_node: Mapping[int, tuple[float, float]],
+        default_max_value: float | None = None,
+    ) -> None:
         """Initialize the time-window extension function.
 
         Args:
@@ -207,7 +488,7 @@ class TimeWindowExtensionFunction(_GenericFunctionDescriptor):
         self.tw_by_node = tw_by_node
         self.default_max_value = default_max_value
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyExtensionFunction:
         """Instantiate a TimeWindowExtensionFunction for *resource_type*.
 
         Args:
@@ -219,11 +500,11 @@ class TimeWindowExtensionFunction(_GenericFunctionDescriptor):
         """
         fn = _get_fn("TimeWindowExtensionFunction", resource_type)
         if self.default_max_value is None:
-            return fn(self.tw_by_node)
-        return fn(self.tw_by_node, self.default_max_value)
+            return fn(dict(self.tw_by_node))
+        return fn(dict(self.tw_by_node), self.default_max_value)
 
 
-class CapacityExtensionFunction(_GenericFunctionDescriptor):
+class CapacityExtensionFunction(ExtensionFunction):
     """A capacity: a load summed along the path that must stay within a cap.
 
     It also supports backward search. Forward, it adds each arc's load, like
@@ -238,7 +519,7 @@ class CapacityExtensionFunction(_GenericFunctionDescriptor):
     function's maximum. :func:`rcspp.presets.add_capacity_resource` registers the pair.
     """
 
-    def __init__(self, capacity):
+    def __init__(self, capacity: float) -> None:
         """Initialize the capacity extension function.
 
         Args:
@@ -246,7 +527,7 @@ class CapacityExtensionFunction(_GenericFunctionDescriptor):
         """
         self.capacity = capacity
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyExtensionFunction:
         """Instantiate a CapacityExtensionFunction for *resource_type*.
 
         Args:
@@ -262,7 +543,7 @@ class CapacityExtensionFunction(_GenericFunctionDescriptor):
         return fn(self.capacity)
 
 
-class TimeWindowFeasibilityFunction(_GenericFunctionDescriptor):
+class TimeWindowFeasibilityFunction(FeasibilityFunction):
     """Feasibility function that checks whether a resource value lies within a time
     window.
 
@@ -270,7 +551,11 @@ class TimeWindowFeasibilityFunction(_GenericFunctionDescriptor):
     latest time. Applicable to numerical resource types only.
     """
 
-    def __init__(self, tw_by_node: dict, default_max_value=None):
+    def __init__(
+        self,
+        tw_by_node: Mapping[int, tuple[float, float]],
+        default_max_value: float | None = None,
+    ) -> None:
         """Initialize the time-window feasibility function.
 
         Args:
@@ -282,7 +567,7 @@ class TimeWindowFeasibilityFunction(_GenericFunctionDescriptor):
         self.tw_by_node = tw_by_node
         self.default_max_value = default_max_value
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyFeasibilityFunction:
         """Instantiate a TimeWindowFeasibilityFunction for *resource_type*.
 
         Args:
@@ -294,20 +579,20 @@ class TimeWindowFeasibilityFunction(_GenericFunctionDescriptor):
         """
         fn = _get_fn("TimeWindowFeasibilityFunction", resource_type)
         if self.default_max_value is None:
-            return fn(self.tw_by_node)
-        return fn(self.tw_by_node, self.default_max_value)
+            return fn(dict(self.tw_by_node))
+        return fn(dict(self.tw_by_node), self.default_max_value)
 
 
 # ── Container only ────────────────────────────────────────────────────────────
 
 
-class UnionExtensionFunction(_GenericFunctionDescriptor):
+class UnionExtensionFunction(ExtensionFunction):
     """Extension function that unions the arc consumption set into the resource.
 
     Applicable to container resource types only.
     """
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyExtensionFunction:
         """Instantiate a UnionExtensionFunction for *resource_type*.
 
         Args:
@@ -320,13 +605,13 @@ class UnionExtensionFunction(_GenericFunctionDescriptor):
         return _get_fn("UnionExtensionFunction", resource_type)()
 
 
-class IntersectionExtensionFunction(_GenericFunctionDescriptor):
+class IntersectionExtensionFunction(ExtensionFunction):
     """Extension function that intersects the resource with the arc consumption set.
 
     Applicable to container resource types only.
     """
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyExtensionFunction:
         """Instantiate an IntersectionExtensionFunction for *resource_type*.
 
         Args:
@@ -339,13 +624,13 @@ class IntersectionExtensionFunction(_GenericFunctionDescriptor):
         return _get_fn("IntersectionExtensionFunction", resource_type)()
 
 
-class DifferenceExtensionFunction(_GenericFunctionDescriptor):
+class DifferenceExtensionFunction(ExtensionFunction):
     """Extension function that removes the arc consumption set from the resource.
 
     Applicable to container resource types only.
     """
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyExtensionFunction:
         """Instantiate a DifferenceExtensionFunction for *resource_type*.
 
         Args:
@@ -358,14 +643,14 @@ class DifferenceExtensionFunction(_GenericFunctionDescriptor):
         return _get_fn("DifferenceExtensionFunction", resource_type)()
 
 
-class SubsetDominanceFunction(_GenericFunctionDescriptor):
+class SubsetDominanceFunction(DominanceFunction):
     """Dominance function based on set inclusion.
 
     A label dominates another if its resource set is a subset of the other's. Applicable
     to container resource types only.
     """
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyDominanceFunction:
         """Instantiate a SubsetDominanceFunction for *resource_type*.
 
         Args:
@@ -378,14 +663,14 @@ class SubsetDominanceFunction(_GenericFunctionDescriptor):
         return _get_fn("SubsetDominanceFunction", resource_type)()
 
 
-class SupersetDominanceFunction(_GenericFunctionDescriptor):
+class SupersetDominanceFunction(DominanceFunction):
     """Dominance function based on superset containment.
 
     A label dominates another if its resource set is a superset of the other's.
     Applicable to container resource types only.
     """
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyDominanceFunction:
         """Instantiate a SupersetDominanceFunction for *resource_type*.
 
         Args:
@@ -398,7 +683,7 @@ class SupersetDominanceFunction(_GenericFunctionDescriptor):
         return _get_fn("SupersetDominanceFunction", resource_type)()
 
 
-class SizeFeasibilityFunction(_GenericFunctionDescriptor):
+class SizeFeasibilityFunction(FeasibilityFunction):
     """Feasibility function that enforces a cardinality bound on a container resource.
 
     A label is feasible when the size of its resource set lies within the
@@ -406,7 +691,7 @@ class SizeFeasibilityFunction(_GenericFunctionDescriptor):
     types only.
     """
 
-    def __init__(self, min_size: int, max_size: int):
+    def __init__(self, min_size: int, max_size: int) -> None:
         """Initialize the size feasibility bounds.
 
         Args:
@@ -416,7 +701,7 @@ class SizeFeasibilityFunction(_GenericFunctionDescriptor):
         self.min_size = min_size
         self.max_size = max_size
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyFeasibilityFunction:
         """Instantiate a SizeFeasibilityFunction for *resource_type*.
 
         Args:
@@ -429,7 +714,7 @@ class SizeFeasibilityFunction(_GenericFunctionDescriptor):
         return _get_fn("SizeFeasibilityFunction", resource_type)(self.min_size, self.max_size)
 
 
-class NgPathExtensionFunction(_GenericFunctionDescriptor):
+class NgPathExtensionFunction(ExtensionFunction):
     """Extension function of the ng-path memory.
 
     Along an arc, adds the node the label leaves to its set, then keeps only the members
@@ -438,16 +723,18 @@ class NgPathExtensionFunction(_GenericFunctionDescriptor):
     types only.
     """
 
-    def __init__(self, neighborhoods: Mapping[int, Iterable[int]]):
+    def __init__(self, neighborhoods: Mapping[int, Iterable[int]]) -> None:
         """Initialize the ng-neighbourhoods.
 
         Args:
             neighborhoods: ``{node_id: ng-neighbourhood}``. A node absent from the map forgets
                 the whole memory on arrival.
         """
-        self.neighborhoods = {node: set(members) for node, members in neighborhoods.items()}
+        self.neighborhoods: dict[int, set[int]] = {
+            node: set(members) for node, members in neighborhoods.items()
+        }
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyExtensionFunction:
         """Instantiate an NgPathExtensionFunction for *resource_type*.
 
         Args:
@@ -460,7 +747,7 @@ class NgPathExtensionFunction(_GenericFunctionDescriptor):
         return _get_fn("NgPathExtensionFunction", resource_type)(self.neighborhoods)
 
 
-class IntersectionFeasibilityFunction(_GenericFunctionDescriptor):
+class IntersectionFeasibilityFunction(FeasibilityFunction):
     """Feasibility function testing the resource set against per-node values.
 
     With ``forbidden=True`` (the default), a label is infeasible at a node when its set meets the
@@ -468,17 +755,19 @@ class IntersectionFeasibilityFunction(_GenericFunctionDescriptor):
     types only.
     """
 
-    def __init__(self, values_by_node: Mapping[int, Iterable[int]], forbidden: bool = True):
+    def __init__(self, values_by_node: Mapping[int, Iterable[int]], forbidden: bool = True) -> None:
         """Initialize the per-node values.
 
         Args:
             values_by_node: ``{node_id: values}``; a node absent from the map is not tested.
             forbidden: Whether the values are forbidden (``True``) or required (``False``).
         """
-        self.values_by_node = {node: set(values) for node, values in values_by_node.items()}
+        self.values_by_node: dict[int, set[int]] = {
+            node: set(values) for node, values in values_by_node.items()
+        }
         self.forbidden = forbidden
 
-    def create(self, resource_type: str):
+    def create(self, resource_type: str) -> AnyFeasibilityFunction:
         """Instantiate an IntersectionFeasibilityFunction for *resource_type*.
 
         Args:
@@ -491,31 +780,3 @@ class IntersectionFeasibilityFunction(_GenericFunctionDescriptor):
         return _get_fn("IntersectionFeasibilityFunction", resource_type)(
             self.values_by_node, self.forbidden
         )
-
-
-# ── Re-export typed C++ names from the resource submodule ────────────────────
-# Names overridden above with generic Python wrappers are excluded.
-
-_overridden = {
-    "AdditionExtensionFunction",
-    "ValueCostFunction",
-    "ValueDominanceFunction",
-    "TrivialFeasibilityFunction",
-    "TrivialCostFunction",
-    "MinMaxFeasibilityFunction",
-    "TimeWindowExtensionFunction",
-    "TimeWindowFeasibilityFunction",
-    "CapacityExtensionFunction",
-    "UnionExtensionFunction",
-    "IntersectionExtensionFunction",
-    "DifferenceExtensionFunction",
-    "SubsetDominanceFunction",
-    "SupersetDominanceFunction",
-    "SizeFeasibilityFunction",
-    "NgPathExtensionFunction",
-    "IntersectionFeasibilityFunction",
-}
-
-for _k in dir(_ext.resource):
-    if not _k.startswith("_") and _k not in _overridden:
-        globals()[_k] = getattr(_ext.resource, _k)

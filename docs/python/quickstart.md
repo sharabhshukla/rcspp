@@ -96,6 +96,9 @@ result = rg.solve()
 
 ## From a NetworkX graph
 
+<!-- docs-check: skip
+     Not type-checked: networkx's type stubs make `nx.DiGraph` generic, and `mypy --strict` then
+     asks for an annotation on `G` that would only clutter the sample. -->
 ```python
 import networkx as nx
 from rcspp.graph import ResourceGraph
@@ -124,6 +127,7 @@ result = rg.solve()
 
 ## Multiple solutions (diversification)
 
+<!-- docs-check: given from rcspp.graph import ResourceGraph; rg = ResourceGraph() -->
 ```python
 from rcspp.graph import AlgorithmParams, Algorithm
 
@@ -141,6 +145,8 @@ for sol in result.solutions:
 
 ## Column generation loop
 
+<!-- docs-check: given from typing import Any; from rcspp.graph import ResourceGraph;
+     n_constraints = 3; master: Any = None -->
 ```python
 import math
 
@@ -205,6 +211,7 @@ A visited set built from the arcs' values, as above, cannot be searched backward
 ng-path or an elementary-path memory, use the presets, which read the memory from the arcs'
 endpoints and work in every direction:
 
+<!-- docs-check: given from rcspp.graph import ResourceGraph; rg = ResourceGraph() -->
 ```python
 from rcspp import presets
 
