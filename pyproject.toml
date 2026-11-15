@@ -40,6 +40,10 @@ Issues = "https://github.com/lab-core/rcspp/issues"
 [tool.scikit-build]
 cmake.version = ">=3.26"
 build-dir = "build/{wheel_tag}"
+# The pure-Python package (with its stubs and py.typed) is packaged by scikit-build-core, not
+# installed by CMake, so that an editable install (`pip install -e .`) reads it from the source
+# tree. CMake installs the compiled extension only (python/CMakeLists.txt).
+wheel.packages = ["python/src/rcspp"]
 cmake.args = [
   "-DUSE_PYTHON=ON",
   "-DUSE_TESTS=OFF",

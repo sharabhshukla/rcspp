@@ -5,10 +5,11 @@ import math
 import time
 from typing import Optional
 
+from vrp.cg.mp_solution import MPSolution
 from vrp.cg.path import Path
 from vrp.instance import Customer, Instance
 
-from rcspp.graph import ResourceGraph, Row, Solution
+from rcspp.graph import ResourceGraph, Row, Solution, SolveResult
 from rcspp.resource import (
     AdditionExtensionFunction,
     MinMaxFeasibilityFunction,
@@ -24,17 +25,22 @@ from rcspp.resource import (
 class VRP:
     EPSILON = 0.00000001
 
-    def __init__(self, instance: Instance):
+    def __init__(self, instance: Instance) -> None:
         self.__instance = instance
-        self.__time_window_by_node_id = {}
+        self.__time_window_by_node_id: dict[int, tuple[float, float]] = {}
         self.__path_id = 0
         self.initialize_time_windows()
         # Build the subproblem graph once; dual costs are updated in-place each iteration.
         self.__resource_graph = self.construct_resource_graph()
-        self.__paths = []
+        self.__paths: list[Path] = []
         self.__total_subproblem_time = 0.0
 
-    def initialize_time_windows(self):
+    @property
+    def total_subproblem_time(self) -> float:
+        """Seconds spent in the subproblem by :meth:`solve`."""
+        return self.__total_subproblem_time
+
+    def initialize_time_windows(self) -> dict[int, tuple[float, float]]:
         customers_by_id = self.__instance.get_customers_by_id()
         for customer_id, customer in customers_by_id.items():
             self.__time_window_by_node_id[customer_id] = (
@@ -145,7 +151,7 @@ class VRP:
 
     # ── Initial paths ─────────────────────────────────────────────────────────
 
-    def generate_initial_paths(self):
+    def generate_initial_paths(self) -> list[Path]:
         depot = self.__instance.get_depot_customer()
         customers_by_id = self.__instance.get_customers_by_id()
         sink_id = len(customers_by_id)
@@ -159,8 +165,8 @@ class VRP:
             self.__path_id += 1
         return self.__paths
 
-    def add_paths(self, solutions: list[Solution]):
-        new_paths = []
+    def add_paths(self, solutions: list[Solution]) -> list[Path]:
+        new_paths: list[Path] = []
         for solution in solutions:
             cost = self.calculate_solution_cost(solution)
             path = Path(self.__path_id, cost, solution.path_node_ids)
@@ -171,11 +177,16 @@ class VRP:
 
     def calculate_solution_cost(self, solution: Solution) -> float:
         """Return the true (non-reduced) cost by summing base arc costs."""
-        return sum(self.__resource_graph.get_arc(arc_id).cost for arc_id in solution.path_arc_ids)
+        total = 0.0
+        for arc_id in solution.path_arc_ids:
+            arc = self.__resource_graph.get_arc(arc_id)
+            assert arc is not None  # a solution's arcs are in the graph
+            total += arc.cost
+        return total
 
     # ── Column generation ─────────────────────────────────────────────────────
 
-    def solve(self, subproblem_max_nb_solutions: Optional[int] = None):
+    def solve(self, subproblem_max_nb_solutions: Optional[int] = None) -> MPSolution:
         from vrp.cg.master_problem import MasterProblem  # requires mip
 
         self.generate_initial_paths()
@@ -196,7 +207,7 @@ class VRP:
             dual_by_id = mp_sol.dual_by_var_id
 
             t0 = time.time()
-            solutions = self.solve_subproblem(dual_by_id)
+            solutions = self.solve_subproblem(dual_by_id).solutions
             self.__total_subproblem_time += time.time() - t0
 
             if solutions:
@@ -223,7 +234,7 @@ class VRP:
         mp_sol.dual_by_var_id = final_dual_by_id
         return mp_sol
 
-    def solve_subproblem(self, dual_by_id: Optional[dict[int, float]] = None):
+    def solve_subproblem(self, dual_by_id: Optional[dict[int, float]] = None) -> SolveResult:
         """Update arc reduced costs in-place, then solve.
 
         The graph is built once in ``__init__``; only extender resource 0 (the cost
@@ -277,7 +288,7 @@ def main() -> None:
     else:
         mp_sol = vrp.solve(subproblem_max_nb_solutions=args.max_solutions)
         print(f"\nFinal LP objective: {mp_sol.cost:.4f}")
-        print(f"Total subproblem time: {vrp._VRP__total_subproblem_time:.3f}s")
+        print(f"Total subproblem time: {vrp.total_subproblem_time:.3f}s")
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ bound, which means a type is bound after a function that uses it.
 """
 
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -23,6 +24,38 @@ ENUM_LOCATIONS = {
     "SearchDirection": "rcspp._core.graph",
     "Algorithm": "rcspp._core.graph",
 }
+
+
+# A binding that takes or returns a bare py::dict, py::tuple or py::function is written as a bare
+# `dict`, `tuple` or `Callable`, whose parameters a type checker reports as unknown wherever the
+# name is used. They are spelled out as "anything", which is what the binding accepts.
+BARE_GENERICS = (
+    (
+        re.compile(r"\bcollections\.abc\.Callable\b(?!\[)"),
+        "collections.abc.Callable[..., typing.Any]",
+    ),
+    (re.compile(r"(?<=[:>] )dict\b(?!\[)"), "dict[typing.Any, typing.Any]"),
+    (re.compile(r"(?<=[:>] )tuple\b(?!\[)"), "tuple[typing.Any, ...]"),
+)
+
+
+def spell_out_bare_generics(path: pathlib.Path) -> None:
+    """Give the bare generic types of a stub their parameters, in annotations only."""
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    in_docstring = False
+    for i, line in enumerate(lines):
+        quotes = line.count('"""')
+        if in_docstring or quotes:
+            if quotes % 2:
+                in_docstring = not in_docstring
+            continue
+        for pattern, replacement in BARE_GENERICS:
+            line = pattern.sub(replacement, line)
+        lines[i] = line
+    text = "".join(lines)
+    if "typing.Any" in text and not re.search(r"^import typing$", text, re.MULTILINE):
+        raise SystemExit(f"{path}: uses typing.Any but does not import typing")
+    path.write_text(text, encoding="utf-8")
 
 
 def main() -> int:
@@ -45,6 +78,8 @@ def main() -> int:
     stubs = [
         str(path) for path in sorted((ROOT / "python" / "src" / "rcspp" / "_core").glob("*.pyi"))
     ]
+    for stub in stubs:
+        spell_out_bare_generics(pathlib.Path(stub))
     for formatter in ("isort", "black"):
         status = subprocess.call([sys.executable, "-m", formatter, "-q", *stubs])  # nosec B603
         if status != 0:

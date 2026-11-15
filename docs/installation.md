@@ -36,6 +36,19 @@ cmake --build build
 pip install python/
 ```
 
+### Working on the Python package
+
+An editable install builds the extension once and reads the Python sources from the
+repository, so an edit to `python/src/rcspp/*.py` takes effect without reinstalling:
+
+```bash
+pip install -e .
+```
+
+An IDE or a type checker that uses this environment resolves `rcspp` to `python/src/rcspp`,
+with the signatures and docstrings of the whole API. After a change to the C++ code or to the
+bindings, run the command again.
+
 ### Include in your CMake project
 
 ```cmake

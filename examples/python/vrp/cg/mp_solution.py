@@ -3,12 +3,19 @@
 
 
 class MPSolution:
-    def __init__(self, value_by_var_id=None, dual_by_var_id=None, cost=0.0):
-        self.value_by_var_id = value_by_var_id if value_by_var_id is not None else {}
-        self.dual_by_var_id = dual_by_var_id if dual_by_var_id is not None else {}
-        self.cost = cost
+    def __init__(
+        self,
+        value_by_var_id: dict[int, float] | None = None,
+        dual_by_var_id: dict[int, float] | None = None,
+        cost: float = 0.0,
+    ) -> None:
+        self.value_by_var_id: dict[int, float] = (
+            value_by_var_id if value_by_var_id is not None else {}
+        )
+        self.dual_by_var_id: dict[int, float] = dual_by_var_id if dual_by_var_id is not None else {}
+        self.cost: float = cost
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"MPSolution(cost={self.cost}, "
             f"value_by_var_id={self.value_by_var_id}, "

@@ -26,9 +26,10 @@ Quick reference
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from multiprocessing import Lock
 from multiprocessing.shared_memory import SharedMemory
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -39,20 +40,30 @@ try:
 except ImportError:  # pragma: no cover
     _SCIPY_AVAILABLE = False
 
-try:
-    from rcspp._core import solution_pool as _sp
+# The C++ pool classes, public here: rcspp._core is the private extension. Imported by name, so
+# that an IDE or a type checker sees them. DEFAULT_PRICE_THRESHOLD is the default threshold of
+# every price(), the C++ pool's included.
+from ._core.solution_pool import (
+    DEFAULT_PRICE_THRESHOLD,
+    ColumnActivity,
+    FilteredSolutionPool,
+    PricedColumn,
+    SolutionPool,
+)
 
-    _SolutionPool = _sp.SolutionPool
-    # The C++ pool classes, public here: rcspp._core is the private extension.
-    SolutionPool = _sp.SolutionPool
-    FilteredSolutionPool = _sp.FilteredSolutionPool
-    ColumnActivity = _sp.ColumnActivity
-    PricedColumn = _sp.PricedColumn
-    # The default threshold of every price(), the C++ pool's included.
-    DEFAULT_PRICE_THRESHOLD: float = _sp.DEFAULT_PRICE_THRESHOLD
-except ImportError:  # pragma: no cover
-    _SolutionPool = None
-    DEFAULT_PRICE_THRESHOLD = -1e-9
+_SolutionPool = SolutionPool
+
+__all__ = [
+    "DEFAULT_PRICE_THRESHOLD",
+    "ColumnActivity",
+    "FilteredPricingPool",
+    "FilteredSharedPricingPool",
+    "FilteredSolutionPool",
+    "PricedColumn",
+    "PricingPool",
+    "SharedPricingPool",
+    "SolutionPool",
+]
 
 if TYPE_CHECKING:
     from rcspp._core.graph import Solution
@@ -203,7 +214,7 @@ class SharedPricingPool:
         )
 
     @classmethod
-    def attach(cls, handle: dict) -> "SharedPricingPool":
+    def attach(cls, handle: dict[str, Any]) -> "SharedPricingPool":
         """Attach to an existing pool from a worker process (zero-copy)."""
         obj = object.__new__(cls)
         obj._lock = handle["lock"]
@@ -232,7 +243,7 @@ class SharedPricingPool:
         obj._init_views()
         return obj
 
-    def handle(self) -> dict:
+    def handle(self) -> dict[str, Any]:
         """Return a picklable handle for :meth:`attach`."""
         return {"shm_name": self._shm.name, "lock": self._lock}
 
@@ -288,7 +299,7 @@ class SharedPricingPool:
             self._header["count"] = count + 1
         return count
 
-    def add_columns(self, solutions: list) -> list[int]:
+    def add_columns(self, solutions: list[Solution]) -> list[int]:
         """Batch-add multiple columns under a single lock acquisition.
 
         More efficient than calling :meth:`add` in a loop::
@@ -765,7 +776,7 @@ class FilteredPricingPool:
             self._parent._shared.update(int(existing), solution)
         return cpp_id
 
-    def add_columns(self, solutions: list) -> list[int]:
+    def add_columns(self, solutions: list[Solution]) -> list[int]:
         """Batch-add multiple solutions.  Returns list of ColumnIds.
 
         More efficient than calling :meth:`add` in a loop::
@@ -827,7 +838,7 @@ class FilteredPricingPool:
 
     # ── Filter narrowing ──────────────────────────────────────────────────────
 
-    def new_filter(self, **kwargs) -> "FilteredPricingPool":
+    def new_filter(self, **kwargs: Any) -> FilteredPricingPool:
         """Create a further-narrowed view.  All kwargs forwarded to C++
         ``new_filter()``.
 
@@ -887,7 +898,7 @@ class FilteredPricingPool:
             self._parent._shared.invalidate(sidxs.tolist())
         return removed
 
-    def global_remove_if(self, pred) -> list[int]:
+    def global_remove_if(self, pred: Callable[[int, Solution, ColumnActivity], bool]) -> list[int]:
         """Hard-delete columns from the main pool; propagates to all views.
 
         Use sparingly — prefer :meth:`remove_stale` or the local C++ ``remove_if``
@@ -991,7 +1002,7 @@ class FilteredPricingPool:
         """Return the underlying :class:`SharedPricingPool`."""
         return self._parent._shared
 
-    def handle(self) -> dict:
+    def handle(self) -> dict[str, Any]:
         """Return the picklable worker handle (same as parent pool's handle)."""
         return self._parent.handle()
 
@@ -1081,7 +1092,7 @@ class PricingPool:
     # ── Worker support ────────────────────────────────────────────────────────
 
     @staticmethod
-    def attach(handle: dict) -> SharedPricingPool:
+    def attach(handle: dict[str, Any]) -> SharedPricingPool:
         """Attach to the shared pool from a worker process.
 
         Workers call this to get a :class:`SharedPricingPool` for lock-free
@@ -1099,7 +1110,7 @@ class PricingPool:
         """
         return SharedPricingPool.attach(handle)
 
-    def handle(self) -> dict:
+    def handle(self) -> dict[str, Any]:
         """Picklable handle for worker processes."""
         return self._shared.handle()
 
@@ -1137,7 +1148,7 @@ class PricingPool:
             self._shared.update(int(existing), solution)
         return cpp_id
 
-    def add_columns(self, solutions: list) -> list[int]:
+    def add_columns(self, solutions: list[Solution]) -> list[int]:
         """Batch-add multiple solutions.  Returns list of ColumnIds.
 
         More efficient than calling :meth:`add` in a loop::
@@ -1235,7 +1246,7 @@ class PricingPool:
 
     # ── Filter creation ───────────────────────────────────────────────────────
 
-    def new_filter(self, **kwargs) -> FilteredPricingPool:
+    def new_filter(self, **kwargs: Any) -> FilteredPricingPool:
         """Create a filtered view.  All kwargs forwarded to C++ ``new_filter()``.
 
         Solution-level args (``forbidden_arc_ids``, ``compulsory_rows``, …) and
@@ -1289,7 +1300,7 @@ class PricingPool:
             self._shared.invalidate(sidxs.tolist())
         return removed
 
-    def global_remove_if(self, pred) -> list[int]:
+    def global_remove_if(self, pred: Callable[[int, Solution, ColumnActivity], bool]) -> list[int]:
         """Hard-delete columns from the main pool; propagates to all views.
 
         Use sparingly — prefer :meth:`remove_stale` or the local C++ ``remove_if``

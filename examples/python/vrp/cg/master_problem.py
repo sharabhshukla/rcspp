@@ -1,8 +1,11 @@
 #  Copyright (c) 2025 Laboratory for Combinatorial Optimization in Real-time Environment.
 #  All rights reserved.
 
-import mip
+from collections.abc import Iterable
+
+import mip  # type: ignore[import-untyped]  # mip ships no type information
 from vrp.cg.mp_solution import MPSolution
+from vrp.cg.path import Path
 
 # Probe the best available solver once at import time.
 _SOLVER: str = ""
@@ -45,22 +48,22 @@ class MasterProblem:
         sol = master.solve(relax=False)      # final integer solve
     """
 
-    def __init__(self, node_ids):
+    def __init__(self, node_ids: Iterable[int]) -> None:
         self.node_ids_ = list(node_ids)
         # Column cache: (path_id, cost, {node_id: coefficient})
-        self._columns: list[tuple[int, float, dict]] = []
-        self._column_ids: set = set()
+        self._columns: list[tuple[int, float, dict[int, float]]] = []
+        self._column_ids: set[int] = set()
         # Persistent LP model (None until first solve)
         self._model: mip.Model | None = None
         self._constrs: dict[int, mip.Constr] = {}
         self._path_vars: dict[int, mip.Var] = {}
 
-    def add_paths(self, paths) -> None:
+    def add_paths(self, paths: Iterable[Path]) -> None:
         """Register new routes; add to model if already built."""
         for path in paths:
             if path.id in self._column_ids:
                 continue
-            visit_counts = {}
+            visit_counts: dict[int, int] = {}
             for nid in path.visited_nodes:
                 visit_counts[nid] = visit_counts.get(nid, 0) + 1
             coeffs = {
@@ -78,17 +81,16 @@ class MasterProblem:
             relax: True → LP relaxation (returns dual values);
                    False → integer program (flips var types in-place).
         """
-        if self._model is None:
-            self._build_model()
+        model = self._model if self._model is not None else self._build_model()
         if not relax:
             self._set_var_types(mip.BINARY)
-        self._model.optimize()
-        sol = self._extract(dual=relax)
+        model.optimize()
+        sol = self._extract(model, dual=relax)
         if not relax:
             self._set_var_types(mip.CONTINUOUS)
         return sol
 
-    def _build_model(self) -> None:
+    def _build_model(self) -> mip.Model:
         """Build LP model from current column cache using mip.xsum."""
         m = _make_model("master_problem")
         for pid, cost, _ in self._columns:
@@ -103,11 +105,13 @@ class MasterProblem:
             ]
             self._constrs[nid] = m.add_constr(mip.xsum(terms) == 1.0, name=f"c_{nid}")
         self._model = m
+        return m
 
-    def _add_column(self, pid: int, cost: float, coeffs: dict) -> None:
+    def _add_column(self, pid: int, cost: float, coeffs: dict[int, float]) -> None:
         """Add one variable to the existing model via mip.Column."""
         col_constrs = [self._constrs[nid] for nid in self.node_ids_ if nid in coeffs]
         col_coeffs = [coeffs[nid] for nid in self.node_ids_ if nid in coeffs]
+        assert self._model is not None  # add_paths calls this only once the model is built
         self._path_vars[pid] = self._model.add_var(
             name=f"y_{pid}",
             lb=0.0,
@@ -120,21 +124,28 @@ class MasterProblem:
         for var in self._path_vars.values():
             var.var_type = var_type
 
-    def _extract(self, dual: bool) -> MPSolution:
+    def _extract(self, model: mip.Model, dual: bool) -> MPSolution:
         solution = MPSolution()
         ok = (mip.OptimizationStatus.OPTIMAL, mip.OptimizationStatus.FEASIBLE)
-        if self._model.status not in ok:
-            print(f"[MasterProblem] no solution (status={self._model.status})")
+        if model.status not in ok:
+            print(f"[MasterProblem] no solution (status={model.status})")
             return solution
 
-        solution.cost = self._model.objective_value
+        # mip types these as optional: they are None when there is no solution, which the
+        # status check above rules out.
+        objective = model.objective_value
+        solution.cost = float(objective) if objective is not None else 0.0
         print(f"solution.cost={solution.cost}")
 
         for path_id, var in self._path_vars.items():
-            solution.value_by_var_id[path_id] = var.x
+            value = var.x
+            solution.value_by_var_id[path_id] = float(value) if value is not None else 0.0
 
         if dual:
             for node_id, constr in self._constrs.items():
-                solution.dual_by_var_id[node_id] = constr.pi
+                dual_value = constr.pi
+                solution.dual_by_var_id[node_id] = (
+                    float(dual_value) if dual_value is not None else 0.0
+                )
 
         return solution

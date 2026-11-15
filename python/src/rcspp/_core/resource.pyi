@@ -163,14 +163,14 @@ class TrivialFeasibilityFunction_real(FeasibilityFunction_real):
 class TimeWindowExtensionFunction_real(ExtensionFunction_real):
     def __init__(
         self,
-        tw_by_node: dict,
+        tw_by_node: dict[typing.Any, typing.Any],
         default_max_value: typing.SupportsFloat | typing.SupportsIndex = 8.988465674311579e307,
     ) -> None: ...
 
 class TimeWindowFeasibilityFunction_real(FeasibilityFunction_real):
     def __init__(
         self,
-        tw_by_node: dict,
+        tw_by_node: dict[typing.Any, typing.Any],
         default_max_value: typing.SupportsFloat | typing.SupportsIndex = 8.988465674311579e307,
     ) -> None: ...
 
@@ -199,14 +199,14 @@ class TrivialFeasibilityFunction_int(FeasibilityFunction_int):
 class TimeWindowExtensionFunction_int(ExtensionFunction_int):
     def __init__(
         self,
-        tw_by_node: dict,
+        tw_by_node: dict[typing.Any, typing.Any],
         default_max_value: typing.SupportsInt | typing.SupportsIndex = 1073741823,
     ) -> None: ...
 
 class TimeWindowFeasibilityFunction_int(FeasibilityFunction_int):
     def __init__(
         self,
-        tw_by_node: dict,
+        tw_by_node: dict[typing.Any, typing.Any],
         default_max_value: typing.SupportsInt | typing.SupportsIndex = 1073741823,
     ) -> None: ...
 

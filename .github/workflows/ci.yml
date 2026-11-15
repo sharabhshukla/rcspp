@@ -123,6 +123,18 @@ jobs:
             --mypy-config-file python/stubtest.ini \
             --allowlist python/stubtest-allowlist.txt
 
+      - name: Python stubs are the ones the generator writes
+        if: steps.tested.outputs.cache-hit != 'true'
+        # stubtest above checks names and signatures; this checks the committed files are
+        # exactly what scripts/generate_stubs.py writes from this build of the extension (built
+        # with the vendored pybind11, which decides what the stubs of an enum look like).
+        env:
+          PYTHONPATH: python/src
+        run: |
+          pip install pybind11-stubgen==3.0.0 black==26.1.0 isort==7.0.0
+          python scripts/generate_stubs.py
+          git diff --exit-code -- python/src/rcspp/_core
+
       - name: C++ coverage gate
         if: steps.tested.outputs.cache-hit != 'true'
         run: |
@@ -148,3 +160,42 @@ jobs:
         with:
           path: .tested
           key: tested-${{ github.job }}-${{ steps.tree.outputs.hash }}
+
+  # What an IDE or a type checker sees of the Python API. The package is installed, not read
+  # from the build tree: that is what a user's type checker reads.
+  typing:
+    name: Typed Python API (ubuntu / py3.14)
+    if: >-
+      github.event_name != 'pull_request' ||
+      !github.event.pull_request.draft ||
+      github.event.action == 'labeled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: tests/python/requirements-typing.txt
+
+      - name: Install rcspp and the type checkers
+        run: pip install . -r tests/python/requirements-typing.txt
+
+      - name: Every public symbol has a known type
+        run: pyright --verifytypes rcspp --ignoreexternal
+
+      - name: Extract the Python samples of the docs
+        run: >-
+          python scripts/extract_python_doc_samples.py
+          --output build/doc-samples --root .
+          README.md docs/index.md docs/python/quickstart.md
+
+      - name: The examples and the docs' samples type-check
+        run: |
+          mypy --strict build/doc-samples examples/python
+          pyright build/doc-samples examples/python

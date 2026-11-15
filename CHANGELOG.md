@@ -218,9 +218,27 @@ New features are summarised, with a pointer to where they are documented.
   `DEFAULT_PRICE_THRESHOLD`. The docs no longer import from the private `rcspp._core`.
 - **`AlgorithmParams.prune_by_upper_bound` in Python.** The C++ field was not bound, so Python
   users could not turn pruning by the upper bound on.
+- **The Python API is written out, so IDEs and type checkers see all of it.**
+  `ResourceGraph.add_real_resource` and the other `add_<type>_resource` methods, the names
+  `rcspp.graph` and `rcspp.resource` re-export from the extension, and the graph methods that
+  were only reached through attribute delegation (`number_of_nodes`, `remove_arc`, `force_arc`,
+  `remove_arcs_if`, ...) are now declared in the source with their signatures, types and
+  docstrings. Nothing changes at run time. `pyright --verifytypes rcspp` reports every public
+  symbol as typed, and CI runs `mypy --strict` and `pyright` over the examples and the samples of
+  the Python quickstart.
+- **Types for annotations**: `rcspp.graph.AnyNode` and `AnyArc` (a node or an arc of a graph,
+  whichever resource types it holds), `ResourceConsumption`, `RowLike`, `AlgorithmName`,
+  `DirectionName`; and in `rcspp.resource` the bases `ExtensionFunction`, `FeasibilityFunction`,
+  `CostFunction` and `DominanceFunction`, which let a type checker refuse a function passed in
+  the wrong position of `add_<type>_resource`.
+- **`pip install -e .` reads the Python sources from the repository.** The package's `.py`
+  files were copied into the environment, so an edit needed a reinstall. See
+  `docs/installation.md`.
 
 ### Fixed
 
+- **The Python VRP example no longer fails with `--max-solutions`.** It sliced the
+  `SolveResult`, which only takes an index.
 - **A truncated run that uses up its phases reports `MaxPhases`, not `Complete`**, in C++ and in
   Python. With `release_after_solve`, the default, the labels a phase held back (truncated
   labelling, memory pressure) were not counted when the status was read, so such a run reported

@@ -3,8 +3,9 @@
 """Thin Python wrappers around the rcspp C++ logger."""
 
 from . import _core as _ext
+from ._core.logger import LogLevel
 
-LogLevel = _ext.logger.LogLevel
+__all__ = ["LogLevel", "get_log_level", "init_logger", "set_log_level"]
 
 
 def set_log_level(level: LogLevel) -> None:
